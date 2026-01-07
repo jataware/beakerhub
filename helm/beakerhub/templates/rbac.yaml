@@ -1,0 +1,110 @@
+{{- if .Values.rbac.enabled -}}
+---
+# ClusterRole for cluster-scoped resources (nodes, node metrics)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "beakerhub.serviceAccountName" . }}-cluster-role
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+rules:
+  # Read cluster node information for admin dashboard
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+  # List all pods cluster-wide for per-node resource allocation tracking
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["list"]
+  # Access node metrics for admin dashboard resource utilization
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["nodes"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "beakerhub.serviceAccountName" . }}-cluster-rolebinding
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "beakerhub.serviceAccountName" . }}-cluster-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "beakerhub.serviceAccountName" . }}
+    namespace: {{ .Values.namespace }}
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "beakerhub.serviceAccountName" . }}-role
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+rules:
+  # Manage user pods
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  # Manage events
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["get", "list", "watch"]
+  # Manage persistent volume claims
+  - apiGroups: [""]
+    resources: ["persistentvolumeclaims"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Manage services for user pods
+  - apiGroups: [""]
+    resources: ["services"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Manage configmaps (for user data if needed)
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["get", "list", "watch", "create", "delete", "patch"]
+  # Manage secrets (for user credentials if needed)
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Manage jobs for node image tasks (context import, etc.)
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "delete"]
+  # Access pod metrics for admin dashboard resource utilization
+  - apiGroups: ["metrics.k8s.io"]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: {{ include "beakerhub.serviceAccountName" . }}-rolebinding
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: {{ include "beakerhub.serviceAccountName" . }}-role
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "beakerhub.serviceAccountName" . }}
+    namespace: {{ .Values.namespace }}
+{{- end }}

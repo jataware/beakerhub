@@ -1,0 +1,129 @@
+{{- if .Values.dev.viteServer.enabled }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beakerhub-vite
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: beakerhub-vite
+    app.kubernetes.io/component: dev-vite
+    app.kubernetes.io/part-of: beakerhub
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: beakerhub-vite
+      app.kubernetes.io/component: dev-vite
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: beakerhub-vite
+        app.kubernetes.io/component: dev-vite
+        app.kubernetes.io/part-of: beakerhub
+    spec:
+      containers:
+      - name: vite
+        image: {{ .Values.dev.viteServer.image }}
+        command: {{ .Values.dev.viteServer.command | toJson }}
+        workingDir: {{ .Values.dev.viteServer.workingDir }}
+        ports:
+        - name: vite
+          containerPort: {{ .Values.dev.viteServer.port }}
+          protocol: TCP
+        {{- if .Values.dev.viteServer.resources }}
+        resources:
+          {{- toYaml .Values.dev.viteServer.resources | nindent 10 }}
+        {{- end }}
+        volumeMounts:
+        - name: ui-source
+          mountPath: {{ .Values.dev.viteServer.mountPath }}
+        {{- if .Values.dev.viteServer.nodeModulesVolume }}
+        - name: node-modules
+          mountPath: {{ .Values.dev.viteServer.mountPath }}/node_modules
+        {{- end }}
+        env:
+        {{- if .Values.dev.viteServer.env }}
+        {{- range $key, $value := .Values.dev.viteServer.env }}
+        - name: {{ $key }}
+          value: {{ $value | quote }}
+        {{- end }}
+        {{- end }}
+        - name: VITE_HOST
+          value: "0.0.0.0"
+        - name: VITE_PORT
+          value: {{ .Values.dev.viteServer.port | quote }}
+        {{- if .Values.dev.viteServer.hmr }}
+        - name: VITE_HMR_HOST
+          value: {{ .Values.dev.viteServer.hmr.host | quote }}
+        - name: VITE_HMR_PORT
+          value: {{ .Values.dev.viteServer.hmr.port | quote }}
+        {{- end }}
+      volumes:
+      - name: ui-source
+        hostPath:
+          path: {{ .Values.dev.viteServer.hostPath }}
+          type: Directory
+      {{- if .Values.dev.viteServer.nodeModulesVolume }}
+      - name: node-modules
+        {{- if .Values.dev.viteServer.nodeModulesVolume.type | eq "emptyDir" }}
+        emptyDir: {}
+        {{- else if .Values.dev.viteServer.nodeModulesVolume.type | eq "persistentVolumeClaim" }}
+        persistentVolumeClaim:
+          claimName: {{ .Values.dev.viteServer.nodeModulesVolume.claimName | default "beakerhub-vite-node-modules" }}
+        {{- end }}
+      {{- end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: beakerhub-vite
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: beakerhub-vite
+    app.kubernetes.io/component: dev-vite
+    app.kubernetes.io/part-of: beakerhub
+spec:
+  type: {{ .Values.dev.viteServer.service.type }}
+  ports:
+  - name: vite
+    port: {{ .Values.dev.viteServer.port }}
+    targetPort: {{ .Values.dev.viteServer.port }}
+    protocol: TCP
+    {{- if and (eq .Values.dev.viteServer.service.type "NodePort") .Values.dev.viteServer.service.nodePort }}
+    nodePort: {{ .Values.dev.viteServer.service.nodePort }}
+    {{- end }}
+  {{- if .Values.dev.viteServer.hmr }}
+  - name: vite-hmr
+    port: {{ .Values.dev.viteServer.hmr.port }}
+    targetPort: {{ .Values.dev.viteServer.hmr.port }}
+    protocol: TCP
+    {{- if and (eq .Values.dev.viteServer.service.type "NodePort") .Values.dev.viteServer.hmr.nodePort }}
+    nodePort: {{ .Values.dev.viteServer.hmr.nodePort }}
+    {{- end }}
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: beakerhub-vite
+    app.kubernetes.io/component: dev-vite
+{{- if and .Values.dev.viteServer.nodeModulesVolume (eq .Values.dev.viteServer.nodeModulesVolume.type "persistentVolumeClaim") (not .Values.dev.viteServer.nodeModulesVolume.existingClaim) }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: beakerhub-vite-node-modules
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: beakerhub-vite
+    app.kubernetes.io/component: dev-vite
+    app.kubernetes.io/part-of: beakerhub
+spec:
+  accessModes:
+  - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.dev.viteServer.nodeModulesVolume.size | default "2Gi" }}
+  {{- if .Values.dev.viteServer.nodeModulesVolume.storageClass }}
+  storageClassName: {{ .Values.dev.viteServer.nodeModulesVolume.storageClass }}
+  {{- end }}
+{{- end }}
+{{- end }}

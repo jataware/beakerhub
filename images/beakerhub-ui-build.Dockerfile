@@ -1,0 +1,17 @@
+FROM base
+USER root
+
+# Add node/npm to apt
+RUN curl -fsSL https://deb.nodesource.com/setup_24.x | bash -
+
+# Update apt and install npm
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt/lists,sharing=locked \
+    rm -f /etc/apt/apt.conf.d/docker-clean && \
+    apt update -y && \
+    apt install -y nodejs
+
+COPY --from=ui-src . /build
+
+WORKDIR /build
+RUN npm i && npm run build && cp -r /build/dist /ui

@@ -1,0 +1,29 @@
+<template>
+  <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <!-- geological layers -->
+    <path d="M2 20 L22 20 L22 18 Q18 17 14 18 Q10 19 6 18 L2 18 Z" fill="currentColor" opacity="0.7"/>
+    <path d="M2 18 L22 18 L22 16 Q18 15 14 16 Q10 17 6 16 L2 16 Z" fill="currentColor" opacity="0.5"/>
+    <path d="M2 16 L22 16 L22 14 Q18 13 14 14 Q10 15 6 14 L2 14 Z" fill="currentColor" opacity="0.3"/>
+    
+    <!-- mineral deposits / crystals -->
+    <polygon points="8,12 9,10 10,12 9,14" fill="currentColor" opacity="0.8"/>
+    <polygon points="14,11 15,9 16,11 15,13" fill="currentColor" opacity="0.7"/>
+    <polygon points="18,13 19,11 20,13 19,15" fill="currentColor" opacity="0.6"/>
+    
+    <!-- mining extraction points -->
+    <circle cx="6" cy="15" r="1" fill="currentColor" opacity="0.9"/>
+    <circle cx="12" cy="14" r="1" fill="currentColor" opacity="0.8"/>
+    <circle cx="17" cy="16" r="1" fill="currentColor" opacity="0.7"/>
+    
+    <!-- resource mapping grid -->
+    <path d="M4 6 L4 12" stroke="currentColor" stroke-width="0.5" opacity="0.4"/>
+    <path d="M8 4 L8 12" stroke="currentColor" stroke-width="0.5" opacity="0.4"/>
+    <path d="M12 4 L12 12" stroke="currentColor" stroke-width="0.5" opacity="0.4"/>
+    <path d="M16 6 L16 12" stroke="currentColor" stroke-width="0.5" opacity="0.4"/>
+    <path d="M20 4 L20 12" stroke="currentColor" stroke-width="0.5" opacity="0.4"/>
+    
+    <path d="M2 8 L22 8" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+    <path d="M2 10 L22 10" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+    <path d="M2 12 L22 12" stroke="currentColor" stroke-width="0.5" opacity="0.3"/>
+  </svg>
+</template>

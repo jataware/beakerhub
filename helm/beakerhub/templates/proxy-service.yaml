@@ -1,0 +1,60 @@
+---
+# Public proxy service (LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.proxy.serviceName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+  {{- with .Values.proxy.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ .Values.proxy.service.type }}
+  {{- if and (eq .Values.proxy.service.type "NodePort") .Values.proxy.service.nodePort }}
+  ports:
+  - port: {{ .Values.proxy.service.port }}
+    targetPort: {{ .Values.proxy.service.targetPort }}
+    protocol: TCP
+    name: http
+    nodePort: {{ .Values.proxy.service.nodePort }}
+  {{- else }}
+  ports:
+  - port: {{ .Values.proxy.service.port }}
+    targetPort: {{ .Values.proxy.service.targetPort }}
+    protocol: TCP
+    name: http
+  {{- end }}
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: proxy
+
+---
+# Internal proxy API service
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.proxy.apiServiceName }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: proxy-api
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  type: ClusterIP
+  ports:
+  - port: {{ .Values.proxy.apiPort }}
+    targetPort: {{ .Values.proxy.apiPort }}
+    protocol: TCP
+    name: api
+  selector:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: proxy

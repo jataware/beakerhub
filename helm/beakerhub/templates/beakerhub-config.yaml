@@ -1,0 +1,216 @@
+{{- define "beakerhub.beakerhub-config" -}}
+{{- $cognitoClientId := coalesce .Values.auth.cognito.clientId .Values.secrets.cognitoClientId "" }}
+{{- $cognitoUserPoolId := coalesce .Values.auth.cognito.userPoolId .Values.secrets.cognitoUserPoolId "" }}
+{{- $cognitoAwsRegion := coalesce .Values.auth.cognito.regionName .Values.secrets.cognitoAwsRegion "" }}
+{{- $cognitoClientSecret := coalesce .Values.auth.cognito.clientSecret .Values.secrets.cognitoClientSecret nil }}
+import os
+
+# Configuration file for beakerhub.
+c = get_config()  #noqa
+
+#------------------------------------------------------------------------------
+# BeakerHub Configuration
+#------------------------------------------------------------------------------
+
+## Base URL - BeakerHub serves from root by default
+c.BeakerHub.base_url = {{ .Values.hub.baseUrl | quote }}
+c.BeakerHub.hub_bind_url = "http://0.0.0.0:8888/"
+c.BeakerHub.hub_connect_url = {{ printf "http://%s.%s.svc.cluster.local:8888/" .Values.hub.serviceName .Values.namespace | quote }}
+c.BeakerHub.hub_port = {{ .Values.hub.service.port }}
+c.BeakerHub.subdomain_host = {{ print ( ternary "https://" "http://" .Values.ingress.sslEnabled ) .Values.ingress.hosts.proxy | quote }}
+c.BeakerHub.cleanup_servers = False
+c.BeakerHub.footer = {{ .Values.hub.footer | toJson }}
+
+
+## Secret vault encryption key
+c.BeakerHub.vault_encryption_key = os.environ.get("BEAKERHUB_VAULT_KEY", {{ .Values.secrets.vaultEncryptionKey | quote }})
+c.BeakerKubeSpawner.policy_override_env_key_suffix = "{{ .Values.secrets.policyOverrideEnvSuffix }}"
+
+{{ if .Values.hub.staticPath }}
+## Path to Vue build artifacts
+c.BeakerHub.beaker_static_path = {{ .Values.hub.staticPath | quote }}
+{{- end }}
+
+{{ if .Values.hub.logLevel }}
+c.Application.log_level = {{ .Values.hub.logLevel | quote }}
+{{- end }}
+#------------------------------------------------------------------------------
+# Authentication Configuration
+#------------------------------------------------------------------------------
+
+c.BeakerHub.authenticator_class = {{ .Values.auth.authenticator_class | quote }}
+c.Authenticator.allow_all = {{ .Values.auth.allowAll | toString | title }}
+
+{{- if .Values.auth.cognito.enabled }}
+
+# Cognito Boto Configuration
+c.CognitoBotoAuthenticator.client_id = os.environ.get("COGNITO_CLIENT_ID", {{ $cognitoClientId | default "" | quote }})
+c.CognitoBotoAuthenticator.user_pool_id = os.environ.get("COGNITO_CLIENT_USER_POOL_ID", {{ $cognitoUserPoolId | default "" | quote }})
+c.CognitoBotoAuthenticator.region_name = os.environ.get("COGNITO_AWS_REGION", {{  $cognitoAwsRegion | default "" | quote }})
+c.CognitoBotoAuthenticator.client_secret = os.environ.get("COGNITO_CLIENT_SECRET", {{  $cognitoClientSecret | quote | default "None" }})
+
+{{- end }}
+
+#------------------------------------------------------------------------------
+# Hub Configuration
+#------------------------------------------------------------------------------
+
+c.BeakerHub.hub_ip = ""
+c.BeakerHub.enable_idle_session_culling = {{ if .Values.culling.enabled }}True{{ else }}False{{end}}
+c.ConfigurableHTTPProxy.should_start = False
+c.ConfigurableHTTPProxy.api_url = {{ printf "http://%s.%s.svc.cluster.local:%d" .Values.proxy.apiServiceName .Values.namespace (.Values.proxy.apiPort | int) | quote }}
+
+c.IdleSessionCuller.idle_limit = {{ .Values.culling.idleLimit }}
+c.IdleSessionCuller.interval = {{ .Values.culling.interval }}
+c.IdleSessionCuller.shutdown_timeout = {{ .Values.culling.shutdownTimeout }}
+c.IdleSessionCuller.remove_stopped_servers = {{ if .Values.culling.removeStoppedServers }}True{{ else }}False{{ end }}
+
+#------------------------------------------------------------------------------
+# Notebook Configuration
+#------------------------------------------------------------------------------
+
+c.BeakerKubeSpawner.default_registry = {{ .Values.defaultRegistry | quote }}
+c.BeakerKubeSpawner.default_image = {{ printf "%s:%s" .Values.notebook.image.repository .Values.notebook.image.tag | quote }}
+c.BeakerKubeSpawner.default_tag = {{ .Values.notebook.image.tag | quote }}
+c.BeakerKubeSpawner.delete_stopped_pods = {{ .Values.notebook.deleteStoppedPods | toString | title }}
+c.BeakerKubeSpawner.namespace = {{ .Values.namespace | quote }}
+c.BeakerKubeSpawner.service_account = {{ .Values.notebook.serviceAccount.name | quote }}
+
+c.BeakerKubeSpawner.env_keep = [
+{{- range .Values.notebook.envKeep }}
+    {{ . | quote }},
+{{- end }}
+]
+
+{{- if .Values.notebook.defaultResources }}
+
+# Resource limits for spawned pods
+{{- if .Values.notebook.defaultResources.limits.cpu }}
+c.BeakerKubeSpawner.cpu_limit = {{ .Values.notebook.defaultResources.limits.cpu | float64 }}
+{{- end }}
+{{- if .Values.notebook.defaultResources.requests.cpu }}
+c.BeakerKubeSpawner.cpu_guarantee = {{ .Values.notebook.defaultResources.requests.cpu | float64 }}
+{{- end }}
+{{- if .Values.notebook.defaultResources.limits.memory }}
+c.BeakerKubeSpawner.mem_limit = {{ .Values.notebook.defaultResources.limits.memory | quote }}
+{{- end }}
+{{- if .Values.notebook.defaultResources.requests.memory }}
+c.BeakerKubeSpawner.mem_guarantee = {{ .Values.notebook.defaultResources.requests.memory | quote }}
+{{- end }}
+
+{{- end }}
+
+{{- if .Values.notebook.nodeSelector }}
+c.BeakerKubeSpawner.node_selector = {{ .Values.notebook.nodeSelector | toJson }}
+{{- end }}
+
+{{- if .Values.notebook.startTimeout }}
+c.BeakerKubeSpawner.start_timeout = {{ .Values.notebook.startTimeout | toString | title }}
+{{- end }}
+
+{{- if .Values.notebook.httpTimeout }}
+c.BeakerKubeSpawner.http_timeout = {{ .Values.notebook.httpTimeout }}
+{{- end }}
+
+{{- if .Values.notebook.logLevel }}
+c.BeakerKubeSpawner.log_level = {{ .Values.notebook.logLevel | quote }}
+{{- end }}
+
+#------------------------------------------------------------------------------
+# Volume Configuration
+#------------------------------------------------------------------------------
+
+# Always mount the beaker node config
+c.BeakerKubeSpawner.volumes = [
+    {
+        "name": "beaker-node-config-vol",
+        "configMap": {
+            "name": "beaker-node-config"
+        }
+    }
+]
+
+c.BeakerKubeSpawner.volume_mounts = [
+    {
+        "name": "beaker-node-config-vol",
+        "mountPath": "/root/beaker_config.py",
+        "subPath": "beaker_config.py",
+    }
+]
+
+{{- if .Values.userStorage.enabled }}
+# Mount user-specific subdirectory from shared storage
+c.BeakerKubeSpawner.volumes.extend([
+    {
+        'name': 'user-storage',
+        'persistentVolumeClaim': {
+            'claimName': {{ .Values.userStorage.pvcName | quote }}
+        }
+    }
+])
+
+c.BeakerKubeSpawner.volume_mounts.extend([
+    {
+        'name': 'user-storage',
+        'mountPath': {{ .Values.userStorage.notebookMountPath | quote }},
+        'subPath': 'user-{username}',
+    }
+])
+{{- end }}
+
+{{- if .Values.dev.notebook.packages.mountPath }}
+#------------------------------------------------------------------------------
+# Development Mode: Source Code and Packages
+#------------------------------------------------------------------------------
+
+c.BeakerKubeSpawner.volumes.extend([
+    {
+        'name': 'notebook-packages',
+        'hostPath': {
+            'path': {{ .Values.dev.notebook.packages.hostPath | quote }},
+            'type': 'DirectoryOrCreate'
+        }
+    }
+])
+
+c.BeakerKubeSpawner.volume_mounts.extend([
+    {
+        'name': 'notebook-packages',
+        'mountPath': {{ .Values.dev.notebook.packages.mountPath | quote }}
+    }
+])
+{{- end }}
+
+
+{{- if .Values.auth.adminUsers }}
+# Admin users
+c.Authenticator.admin_users = {{ .Values.auth.adminUsers | toJson }}
+{{- end }}
+
+#------------------------------------------------------------------------------
+# Task Configuration (node image import jobs, etc.)
+#------------------------------------------------------------------------------
+
+c.BeakerHub.task_namespace = {{ .Values.namespace | quote }}
+c.BeakerHub.task_reporter_image = {{ printf "%s%s:%s" (default "" .Values.defaultRegistry) .Values.tasks.reporter.image.repository .Values.tasks.reporter.image.tag | quote }}
+c.BeakerHub.task_reporter_pull_policy = {{ .Values.tasks.reporter.image.pullPolicy | quote }}
+c.BeakerHub.task_reporter_resources = {{ .Values.tasks.reporter.resources | toJson }}
+c.BeakerHub.task_node_image_resources = {{ .Values.tasks.nodeImageDefaults.resources | toJson }}
+c.BeakerHub.task_backoff_limit = {{ .Values.tasks.backoffLimit }}
+c.BeakerHub.task_active_deadline_seconds = {{ .Values.tasks.activeDeadlineSeconds }}
+c.BeakerHub.task_ttl_seconds_after_finished = {{ .Values.tasks.ttlSecondsAfterFinished }}
+{{- if .Values.tasks.nodeSelector }}
+c.BeakerHub.task_node_selector = {{ .Values.tasks.nodeSelector | toJson }}
+{{- end }}
+{{- if .Values.tasks.tolerations }}
+c.BeakerHub.task_tolerations = {{ .Values.tasks.tolerations | toJson }}
+{{- end }}
+
+{{- if .Values.config.extraConfig }}
+#------------------------------------------------------------------------------
+# Extra Configuration
+#------------------------------------------------------------------------------
+
+{{ .Values.config.extraConfig }}
+{{- end }}
+{{- end -}}

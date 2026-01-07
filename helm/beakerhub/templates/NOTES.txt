@@ -1,0 +1,63 @@
+Thank you for installing {{ .Chart.Name }}!
+
+Your release is named {{ .Release.Name }}.
+
+To learn more about the release, try:
+
+  $ helm status {{ .Release.Name }} -n {{ .Values.namespace }}
+  $ helm get all {{ .Release.Name }} -n {{ .Values.namespace }}
+
+{{- if eq .Values.proxy.service.type "LoadBalancer" }}
+
+1. Get the application URL by running these commands:
+
+  NOTE: It may take a few minutes for the LoadBalancer IP to be available.
+        You can watch the status by running:
+
+        kubectl get svc beakerhub-proxy -n {{ .Values.namespace }} --watch
+
+  export SERVICE_IP=$(kubectl get svc beakerhub-proxy -n {{ .Values.namespace }} --template "{{"{{ range (index .status.loadBalancer.ingress 0) }}{{.}}{{ end }}"}}")
+  echo "BeakerHub URL: http://$SERVICE_IP:{{ .Values.proxy.service.port }}"
+
+{{- else if eq .Values.proxy.service.type "NodePort" }}
+
+1. Get the application URL by running these commands:
+
+  export NODE_PORT=$(kubectl get svc beakerhub-proxy -n {{ .Values.namespace }} -o jsonpath="{.spec.ports[0].nodePort}")
+  export NODE_IP=$(kubectl get nodes -o jsonpath="{.items[0].status.addresses[0].address}")
+  echo "BeakerHub URL: http://$NODE_IP:$NODE_PORT"
+
+{{- else if eq .Values.proxy.service.type "ClusterIP" }}
+
+1. Get the application URL by running these commands:
+
+  export POD_NAME=$(kubectl get pods -n {{ .Values.namespace }} -l "app.kubernetes.io/name={{ .Chart.Name }},app.kubernetes.io/component=proxy" -o jsonpath="{.items[0].metadata.name}")
+  echo "BeakerHub URL: http://127.0.0.1:8080"
+  kubectl port-forward $POD_NAME -n {{ .Values.namespace }} 8080:8000
+
+{{- end }}
+
+2. Check the status of your pods:
+
+  kubectl get pods -n {{ .Values.namespace }}
+
+3. View logs:
+
+  # Proxy logs
+  kubectl logs -l app.kubernetes.io/component=proxy -n {{ .Values.namespace }}
+
+  # Hub logs
+  kubectl logs -l app.kubernetes.io/component=hub -n {{ .Values.namespace }}
+
+{{- if .Values.auth.cognito.enabled }}
+
+4. Authentication:
+
+  Cognito authentication is enabled.
+  Auth Domain: {{ .Values.auth.cognito.authDomain }}
+
+  Make sure to update the OAuth callback URL in your Cognito configuration to match your LoadBalancer IP/domain.
+
+{{- end }}
+
+For more information, visit: https://github.com/jataware/beakerhub

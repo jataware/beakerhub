@@ -1,0 +1,5 @@
+server = "https://registry.beakerhub.internal"
+
+[host."https://registry.beakerhub.internal"]
+  capabilities = ["pull", "resolve", "push"]
+  ca = "/etc/containerd/certs.d/rootCA.pem"

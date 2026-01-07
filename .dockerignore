@@ -1,0 +1,16 @@
+**
+
+!src/
+!ui/
+!README.md
+!pyproject.toml
+!images/config_files
+
+**/dist
+**/build
+
+ui/node_modules
+**/node_modules
+**/venv
+**/.venv
+**/.env

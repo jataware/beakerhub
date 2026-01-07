@@ -1,0 +1,414 @@
+# Default values for beakerhub
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+
+namespace: beakerhub
+
+defaultRegistry: ""
+
+# Proxy configuration (configurable-http-proxy)
+proxy:
+  # Service names
+  serviceName: beakerhub-proxy
+  apiServiceName: beakerhub-proxy-api
+  apiPort: 8001
+
+  image:
+    repository: beakerhub/proxy
+    tag: latest
+    pullPolicy: Always
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # Node selector for pod assignment
+  nodeSelector: {}
+
+  # Tolerations for pod assignment
+  tolerations: []
+
+  # Service configuration
+  service:
+    type: LoadBalancer
+    port: 80
+    targetPort: 8000
+    # For NodePort, specify the nodePort here
+    # nodePort: 30080
+    annotations: {}
+    # Example AWS annotations:
+    # service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+
+  # TargetGroupBinding for Terraform-managed NLB
+  targetGroupBinding:
+    enabled: false
+    targetGroupARN: ""
+    nlbSecurityGroupId: ""
+
+  # Healthcheck configuration
+  healthcheck:
+    enabled: true
+    path: /_chp_healthz
+    initialDelaySeconds: 5
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Number of replicas (typically 1 for proxy)
+  replicaCount: 1
+
+# Hub configuration (beakerhub-server)
+hub:
+  # Service name
+  serviceName: beakerhub-hub
+
+  image:
+    repository: beakerhub/server
+    tag: latest
+    pullPolicy: Always
+
+  # Resource requests and limits
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # Node selector for pod assignment
+  nodeSelector: {}
+
+  # Tolerations for pod assignment
+  tolerations: []
+
+  # Service configuration
+  service:
+    type: ClusterIP
+    port: 8888
+
+  # Number of replicas (typically 1 for hub)
+  replicaCount: 1
+
+  # Healthcheck configuration
+  healthcheck:
+    enabled: true
+    # Startup probe — direct /hub/health on the pod; tolerates slow first boot.
+    # While active, readiness and liveness probes are suppressed.
+    startup:
+      path: /hub/health
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 60
+    # Readiness probe — direct /hub/health on the pod.
+    readiness:
+      path: /hub/health
+      periodSeconds: 5
+      timeoutSeconds: 3
+      failureThreshold: 2
+    # Liveness probe — direct /hub/health on the pod.
+    liveness:
+      path: /hub/health
+      periodSeconds: 15
+      timeoutSeconds: 3
+      failureThreshold: 3
+
+  # Base URL for JupyterHub (usually '/')
+  baseUrl: /
+
+  # Path to UI dist files (mounted in container)
+  staticPath: /ui
+
+  # Kubernetes identity used by the hub pod. Set create to false when the
+  # service account is managed outside this chart.
+  serviceAccount:
+    create: true
+    name: beakerhub-hub
+    annotations: {}
+
+  # Footer branding and links. Set an optional URL or email to "" to hide it.
+  footer:
+    productName: BeakerHub
+    tagline: Your AI-powered co-scientist.
+    documentationUrl: https://jataware.github.io/beaker-notebook
+    githubUrl: https://github.com/jataware/beaker-notebook
+    contactEmail: contact@beakerhub.com
+    copyrightYears: 2024-present
+    copyrightHolder: Jataware Corp
+    copyrightUrl: https://jataware.com
+
+  # Additional envFrom entries (e.g. for ExternalSecret-managed secrets)
+  # Example:
+  #   extraEnvFrom:
+  #     - secretRef:
+  #         name: my-external-secret
+  extraEnvFrom: []
+
+  # Additional volumes and volume mounts for the hub container
+  extraVolumes: []
+  extraVolumeMounts: []
+
+  # Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  logLevel: "INFO"
+
+# Notebook configuration (for spawned user pods)
+notebook:
+  image:
+    repository: beakerhub/default-node
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  serviceAccount:
+    create: true
+    name: beakerhub-notebook
+
+  # Default resources for spawned pods
+  defaultResources:
+    requests:
+      cpu: 15.0
+      memory: 31G 
+    limits:
+      cpu: null
+      memory: null
+
+  # Node selector for spawned notebook pods
+  nodeSelector: {}
+
+  # Delete pods when stopped
+  deleteStoppedPods: false
+
+  # Timeouts (in seconds)
+  startTimeout: 300
+  httpTimeout: 60
+
+  # Log level for notebook (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+  logLevel: "INFO"
+
+  # Environment variables to pass through to spawned notebook pods
+  envKeep:
+    - OPENAI_API_KEY
+    - ANTHROPIC_API_KEY
+    - GEMINI_API_KEY
+    - LANGSMITH_TRACING
+    - LANGSMITH_API_KEY
+    - LANGSMITH_ENDPOINT
+    - LANGSMITH_PROJECT
+    - LLM_PROVIDER_IMPORT_PATH
+    - LLM_SERVICE_MODEL
+    - LLM_SERVICE_TOKEN
+    - SEND_NOTEBOOK_STATE
+    - SEND_KERNEL_STATE
+
+  # Additional environment variables to include in spawned nodes
+  envVars: {}
+
+  # Extra text to add to the end of the per-notebook beaker_config.py file.
+  extraConfig: ""
+
+# Authentication configuration
+auth:
+  # Dummy authenticator (for development)
+  authenticator_class: "jupyterhub.auth.DummyAuthenticator"
+
+  # Cognito OAuth configuration
+  cognito:
+    enabled: false
+
+    # These values must be set before use. clientSecret is optional
+    clientId: ""
+    clientSecret: null
+    authDomain: ""
+    userPoolId: ""
+    regionName: ""
+    oauthCallbackUrl: ""
+    autoLogin: true
+
+  # Allow all users (for development)
+  allowAll: true
+
+  # Admin users (list of usernames/emails)
+  # adminUsers:
+  #   - admin@example.com
+  #   - admin-user
+  adminUsers: []
+
+# Secrets
+secrets:
+  # Fernet encryption key for the secret vault (stores per-node secrets in the DB).
+  # Generate with: python -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'
+  vaultEncryptionKey: ""
+  envByNode: {}
+  policyOverrideEnvSuffix: "_secret_policy"
+
+# Persistent storage for hub workdir
+persistence:
+  enabled: true
+
+  # Storage class name (e.g., "standard", "gp2", "gp3", "efs-sc")
+  # Leave empty ("") to use cluster default
+  storageClass: ""
+
+  # Volume size
+  size: 10Gi
+
+  # Access mode: ReadWriteOnce, ReadWriteMany, ReadOnlyMany
+  # Note: ReadWriteMany required for EFS and other shared storage
+  accessMode: ReadWriteOnce
+
+  # Mount path in the hub container
+  mountPath: /workdir
+
+  # PVC name (defaults to beakerhub-workdir)
+  pvcName: beakerhub-workdir
+
+  # Optional: Volume selector for pre-provisioned volumes
+  # selector:
+  #   matchLabels:
+  #     app: beakerhub
+
+  # Optional: Additional annotations for the PVC
+  annotations: {}
+  # Example for EFS CSI driver:
+  #   pv.kubernetes.io/provisioned-by: efs.csi.aws.com
+
+# User storage - shared between hub and user notebooks
+userStorage:
+  enabled: true
+
+  # Storage class name (e.g., "standard", "gp2", "gp3", "efs-sc")
+  # Leave empty ("") to use cluster default
+  storageClass: ""
+
+  # Volume size
+  size: 50Gi
+
+  # Access mode: ReadWriteMany is typically required for user storage
+  # since it needs to be accessed by hub and multiple notebook pods
+  accessMode: ReadWriteMany
+
+  # Mount path in the hub container (mounts root of volume)
+  hubMountPath: /shared
+
+  # Mount path in notebook containers (mounts user-specific subdirectory)
+  notebookMountPath: /workdir
+
+  # PVC name
+  pvcName: beakerhub-user-storage
+
+  # Optional: Volume selector for pre-provisioned volumes
+  # selector:
+  #   matchLabels:
+  #     app: beakerhub
+
+  # Optional: Additional annotations for the PVC
+  annotations: {}
+  # Example for EFS CSI driver:
+  #   pv.kubernetes.io/provisioned-by: efs.csi.aws.com
+
+# JupyterHub configuration
+config:
+  # Extra Python configuration to append to beakerhub_config.py
+  # This is useful for adding custom configuration that isn't covered by the template
+  # Example:
+  # extraConfig: |
+  #   c.JupyterHub.concurrent_spawn_limit = 10
+  #   c.JupyterHub.active_server_limit = 20
+  extraConfig: ""
+
+# RBAC configuration
+rbac:
+  # Create the Kubernetes Roles and bindings required by the hub. The bindings
+  # target hub.serviceAccount.name even when that account is externally managed.
+  enabled: true
+
+# Image pull secrets (if using private registry)
+imagePullSecrets: []
+# - name: regcred
+
+# Affinity for pod assignment
+affinity: {}
+
+# Ingress configuration
+ingress:
+  enabled: false
+  sslEnabled: false
+  className: nginx
+  annotations: {}
+    # cert-manager.io/cluster-issuer: letsencrypt-prod
+  hosts:
+    proxy: beakerhub.internal
+    vite: vite.beakerhub.internal
+  tls: []
+  #  - secretName: beakerhub-tls
+  #    hosts:
+  #      - beakerhub.internal
+
+culling:
+  enabled: true
+  # How often the culler checks for idle servers, in seconds.
+  interval: 300
+  # How long a server may be idle before it is culled, in seconds.
+  idleLimit: 60 * 60 * 48  # 48 hours in seconds
+  # How long to wait for a cull before treating the shutdown as stuck, in seconds.
+  shutdownTimeout: 300
+  # If true, culling deletes the named server record as well as stopping the
+  # server. If false, it leaves a record in the spawner table allowing the
+  # session to be resumed by starting a new server with the same session id
+  # and user options.
+  removeStoppedServers: true
+
+# Task configuration (for node image import jobs, etc.)
+tasks:
+  # Reporter container image
+  reporter:
+    image:
+      repository: beakerhub/task-reporter
+      tag: latest
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 200m
+        memory: 128Mi
+
+  # Defaults for node image task init containers
+  nodeImageDefaults:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+  # Job settings
+  backoffLimit: 0               # Don't retry on failure
+  activeDeadlineSeconds: 300    # 5-minute timeout
+  ttlSecondsAfterFinished: 600  # Clean up completed Jobs after 10 min
+
+  # Node selector / tolerations for task pods
+  nodeSelector: {}
+  tolerations: []
+
+dev:
+  hub:
+    debug: false
+    packages:
+      mountPath: ""
+      hostPath: ""
+
+  notebook:
+    debug: false
+    packages:
+      mountPath: ""
+      hostPath: ""
+
+  viteServer:
+    enabled: false

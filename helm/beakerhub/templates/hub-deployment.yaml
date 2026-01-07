@@ -1,0 +1,156 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beakerhub-hub
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: hub
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.hub.replicaCount }}
+  # RWO PVC + single replica: two hub pods can't run concurrently,
+  # so a rolling update would deadlock on the PVC. Recreate is explicit.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: hub
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: hub
+    spec:
+      serviceAccountName: {{ include "beakerhub.serviceAccountName" . }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      # Init container to wait for proxy to be ready
+      initContainers:
+      - name: wait-for-proxy
+        image: busybox:latest
+        command:
+          - sh
+          - -c
+          - |
+            echo "Waiting for proxy to be ready..."
+            until wget -q --spider http://{{ .Values.proxy.serviceName }}.{{ .Values.namespace }}.svc.cluster.local:{{ .Values.proxy.service.port }}/_chp_healthz; do
+              echo "Proxy not ready, waiting..."
+              sleep 5
+            done
+            echo "Proxy is ready!"
+      containers:
+      - name: hub
+        image: "{{ .Values.defaultRegistry }}{{ .Values.hub.image.repository }}:{{ .Values.hub.image.tag }}"
+        imagePullPolicy: {{ .Values.hub.image.pullPolicy }}
+        env:
+        - name: CONFIGPROXY_AUTH_TOKEN
+          valueFrom:
+            secretKeyRef:
+              name: proxy-secrets
+              key: CONFIGPROXY_AUTH_TOKEN
+        envFrom:
+        - secretRef:
+              name: server-secrets
+        {{- range .Values.hub.extraEnvFrom }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+        ports:
+        - name: http
+          containerPort: 8888
+          protocol: TCP
+        {{- if .Values.hub.healthcheck.enabled }}
+        startupProbe:
+          httpGet:
+            path: {{ .Values.hub.healthcheck.startup.path }}
+            port: http
+          periodSeconds: {{ .Values.hub.healthcheck.startup.periodSeconds }}
+          timeoutSeconds: {{ .Values.hub.healthcheck.startup.timeoutSeconds }}
+          failureThreshold: {{ .Values.hub.healthcheck.startup.failureThreshold }}
+        readinessProbe:
+          # Direct /hub/health on the pod. We can't probe through the proxy here: the
+          # proxy's default_target is this pod's Service, which has no endpoints until
+          # the pod is Ready — so a proxy-based probe would deadlock on cold start and
+          # under the Recreate strategy.
+          httpGet:
+            path: {{ .Values.hub.healthcheck.readiness.path }}
+            port: http
+          periodSeconds: {{ .Values.hub.healthcheck.readiness.periodSeconds }}
+          timeoutSeconds: {{ .Values.hub.healthcheck.readiness.timeoutSeconds }}
+          failureThreshold: {{ .Values.hub.healthcheck.readiness.failureThreshold }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.hub.healthcheck.liveness.path }}
+            port: http
+          periodSeconds: {{ .Values.hub.healthcheck.liveness.periodSeconds }}
+          timeoutSeconds: {{ .Values.hub.healthcheck.liveness.timeoutSeconds }}
+          failureThreshold: {{ .Values.hub.healthcheck.liveness.failureThreshold }}
+        {{- end }}
+        volumeMounts:
+        {{- if .Values.persistence.enabled }}
+        - name: workdir
+          mountPath: {{ .Values.persistence.mountPath }}
+        {{- end }}
+        {{- if .Values.userStorage.enabled }}
+        - name: user-storage
+          mountPath: {{ .Values.userStorage.hubMountPath }}
+        {{- end }}
+        {{- if .Values.dev.hub.packages.mountPath }}
+        - name: hub-packages
+          mountPath: {{ .Values.dev.hub.packages.mountPath }}
+        {{- end }}
+        - name: config
+          mountPath: /workdir/beakerhub_config.py
+          subPath: beakerhub_config.py
+        {{- with .Values.hub.extraVolumeMounts }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.hub.resources | nindent 10 }}
+        # Run as root with NET_ADMIN capability (required for networking features)
+        securityContext:
+          runAsUser: 0
+          capabilities:
+            add:
+            - NET_ADMIN
+      volumes:
+      - name: config
+        configMap:
+          name: beakerhub-config
+      {{- if .Values.persistence.enabled }}
+      - name: workdir
+        persistentVolumeClaim:
+          claimName: {{ .Values.persistence.pvcName }}
+      {{- end }}
+      {{- if .Values.userStorage.enabled }}
+      - name: user-storage
+        persistentVolumeClaim:
+          claimName: {{ .Values.userStorage.pvcName }}
+      {{- end }}
+      {{- if .Values.dev.hub.packages.hostPath }}
+      - name: hub-packages
+        hostPath:
+          path: {{ .Values.dev.hub.packages.hostPath }}
+          type: DirectoryOrCreate
+      {{- end }}
+      {{- with .Values.hub.extraVolumes }}
+        {{- toYaml . | nindent 6 }}
+      {{- end }}
+      {{- with .Values.hub.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.hub.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

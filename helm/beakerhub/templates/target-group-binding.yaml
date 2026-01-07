@@ -1,0 +1,27 @@
+{{- if .Values.proxy.targetGroupBinding.enabled }}
+apiVersion: elbv2.k8s.aws/v1beta1
+kind: TargetGroupBinding
+metadata:
+  name: {{ .Values.proxy.serviceName }}-tgb
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: proxy
+spec:
+  serviceRef:
+    name: {{ .Values.proxy.serviceName }}
+    port: {{ .Values.proxy.service.targetPort }}
+  targetGroupARN: {{ .Values.proxy.targetGroupBinding.targetGroupARN | quote }}
+  targetType: ip
+  {{- if .Values.proxy.targetGroupBinding.nlbSecurityGroupId }}
+  networking:
+    ingress:
+      - from:
+          - securityGroup:
+              groupID: {{ .Values.proxy.targetGroupBinding.nlbSecurityGroupId | quote }}
+        ports:
+          - port: {{ .Values.proxy.service.targetPort }}
+            protocol: TCP
+  {{- end }}
+{{- end }}

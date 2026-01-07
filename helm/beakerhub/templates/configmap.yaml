@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beakerhub-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  beakerhub_config.py: |
+{{ include "beakerhub.beakerhub-config" . | indent 4 }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: beaker-node-config
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+data:
+  beaker_config.py: |
+    # ===========================================
+    # Beaker Notebook Service Configuration File
+    # ===========================================
+
+    c = get_config()  # noqa # type: ignore
+
+    c.BaseBeakerApp.identity_provider_class = "beakerhub.auth.node.BeakerhubNodeIdentityProvider"
+    c.BaseBeakerApp.authorizer_class = "beakerhub.auth.node.BeakerhubNodeAuthorizer"
+    c.BaseBeakerApp.allow_origin_pat = r".*{{ .Values.ingress.hosts.proxy }}"
+    c.BaseBeakerApp.tornado_settings = {
+        "headers": {
+            "Content-Security-Policy": "frame-ancestors 'self' {{ .Values.ingress.hosts.proxy }} *.{{ .Values.ingress.hosts.proxy }}",
+        }
+    }
+    c.KernelProvisionerFactory.default_provisioner_name = "kubernetes-local-provisioner"
+
+    c.BaseBeakerApp.secrets_manager_class = "beakerhub.services.secrets.beakerhub.BeakerhubSecretsManager"
+    c.BeakerhubSecretsManager.policy_override_env_key_suffix = "{{ .Values.secrets.policyOverrideEnvSuffix }}"
+
+    c.FileNotebookManager.notebook_path = ".notebooks"
+    c.FileNotebookManager.snapshot_path = ".notebooks"
+
+    {{- if .Values.notebook.extraConfig }}
+    #------------------------------------------------------------------------------
+    # Extra Configuration
+    #------------------------------------------------------------------------------
+
+    {{ .Values.notebook.extraConfig }}
+    {{- end }}

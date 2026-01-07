@@ -1,0 +1,15 @@
+apiVersion: v2
+name: beakerhub
+description: A Helm chart for BeakerHub
+type: application
+version: 0.2.9
+appVersion: "0.0.1"
+keywords:
+  - beaker
+  - notebooks
+  - kubernetes
+maintainers:
+  - name: BeakerHub Team
+home: https://github.com/jataware/beakerhub
+sources:
+  - https://github.com/jataware/beakerhub

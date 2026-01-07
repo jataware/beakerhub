@@ -1,0 +1,90 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: beakerhub-proxy
+  namespace: {{ .Values.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: proxy
+    app.kubernetes.io/managed-by: {{ .Release.Service }}
+spec:
+  replicas: {{ .Values.proxy.replicaCount }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ .Chart.Name }}
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: proxy
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ .Chart.Name }}
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: proxy
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+      - name: proxy
+        image: "{{ .Values.defaultRegistry }}{{ .Values.proxy.image.repository }}:{{ .Values.proxy.image.tag }}"
+        imagePullPolicy: {{ .Values.proxy.image.pullPolicy }}
+        command:
+          - configurable-http-proxy
+          - --ip
+          - "0.0.0.0"
+          - --port
+          - {{ .Values.proxy.service.targetPort | quote }}
+          - --api-ip
+          - "0.0.0.0"
+          - --api-port
+          - {{ .Values.proxy.apiPort | quote }}
+          - --default-target
+          - {{ printf "http://%s.%s.svc.cluster.local:%d" .Values.hub.serviceName .Values.namespace (.Values.hub.service.port | int) | quote }}
+          - --host-routing
+          - --insecure
+          - --log-level
+          - debug
+        envFrom:
+        - secretRef:
+              name: proxy-secrets
+        ports:
+        - name: http
+          containerPort: 8000
+          protocol: TCP
+        - name: api
+          containerPort: 8001
+          protocol: TCP
+        {{- if .Values.proxy.healthcheck.enabled }}
+        livenessProbe:
+          httpGet:
+            path: {{ .Values.proxy.healthcheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.proxy.healthcheck.initialDelaySeconds }}
+          periodSeconds: {{ .Values.proxy.healthcheck.periodSeconds }}
+          timeoutSeconds: {{ .Values.proxy.healthcheck.timeoutSeconds }}
+          failureThreshold: {{ .Values.proxy.healthcheck.failureThreshold }}
+        readinessProbe:
+          httpGet:
+            path: {{ .Values.proxy.healthcheck.path }}
+            port: http
+          initialDelaySeconds: {{ .Values.proxy.healthcheck.initialDelaySeconds }}
+          periodSeconds: {{ .Values.proxy.healthcheck.periodSeconds }}
+          timeoutSeconds: {{ .Values.proxy.healthcheck.timeoutSeconds }}
+          failureThreshold: {{ .Values.proxy.healthcheck.failureThreshold }}
+        {{- end }}
+        resources:
+          {{- toYaml .Values.proxy.resources | nindent 10 }}
+      {{- with .Values.proxy.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.proxy.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

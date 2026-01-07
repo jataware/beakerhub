@@ -1,0 +1,93 @@
+# Note: after modifying this file, you need to run `make upgrade-dev-cluster` and wait for pods to restart before you will see the changes.
+# If the changes do not get automatically caught, you may need to run `make rollout` to restart all pods.
+
+defaultRegistry: registry.beakerhub.internal/
+
+# Ingress for local development
+ingress:
+  enabled: true
+  sslEnabled: true
+  className: nginx
+  hosts:
+    proxy: beakerhub.internal
+    vite: vite.beakerhub.internal
+  tls:
+    - secretName: beakerhub-tls
+      hosts:
+        - beakerhub.internal
+        - "*.beakerhub.internal"
+
+notebook:
+  image:
+    repository: beakerhub/default-node
+
+
+  defaultResources:
+    requests:
+      cpu: 2.0
+      memory: 512M
+
+# User storage - use ReadWriteOnce for local-path provisioner compatibility
+userStorage:
+  accessMode: ReadWriteOnce
+
+culling:
+  idleLimit: 14400  # 4 hours
+  interval: 300  # 5 minutes
+
+hub:
+  image:
+    repository: beakerhub/server
+
+dev:
+  hub:
+    packages:
+      mountPath: /opt/development/packages
+      hostPath: /opt/development/packages
+
+  notebook:
+    packages:
+      mountPath: /opt/development/packages
+      hostPath: /opt/development/packages
+
+  # Timeouts (in seconds)
+  startTimeout: 300
+  httpTimeout: 60
+
+  # Vite dev server with hot reload
+  viteServer:
+    enabled: true
+    image: node:20-alpine
+    command: ["sh", "-c", "npm install && npm run dev"]
+    workingDir: /app
+    port: 8080
+    mountPath: /app
+    hostPath: /opt/development/packages/beakerhub/ui
+    service:
+      type: LoadBalancer
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+    # Optional: Persist node_modules across pod restarts
+    nodeModulesVolume:
+      type: emptyDir  # or "persistentVolumeClaim"
+      # size: 2Gi
+    # HMR (Hot Module Replacement) configuration
+    hmr:
+      host: vite.beakerhub.internal
+      port: 8081
+      nodePort: 30081
+    env:
+      VITE_API_BASE_URL: "http://localhost:30080"
+      BEAKERHUB_URL: "http://beakerhub-proxy.beakerhub.svc.cluster.local"
+
+
+auth:
+  # Cognito OAuth configuration
+  authenticator_class: "beakerhub.auth.dummy.DummyBeakerhubAuthenticator"
+  # Allow all users (for development)
+  allowAll: true
