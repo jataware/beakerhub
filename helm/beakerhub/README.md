@@ -179,6 +179,11 @@ These defaults are suitable only for evaluation and local development. A real
 deployment must configure an appropriate authenticator and explicit access
 policy.
 
+The repository's `helm/values-local.yaml` overlay replaces this generic default
+with `beakerhub.auth.dummy.DummyBeakerhubAuthenticator`. That custom local
+authenticator has different login and administrator behavior; see [Local
+authentication](../../docs/QUICKSTART.md#local-authentication).
+
 Cognito support is configured under `auth.cognito`. Do not commit client
 secrets to a normal values file. Inject them with the deployment's secret
 management system.

@@ -75,6 +75,30 @@ The normal local URL is:
 https://beakerhub.internal
 ```
 
+### Local authentication
+
+The local deployment uses `DummyBeakerhubAuthenticator`. It does not verify
+credentials. In the browser login form, use:
+
+- **Username:** any valid email address, such as `developer@example.com`
+- **Password:** any nonempty value
+
+The supplied username becomes the BeakerHub username. Log in as
+`admin@example.com` for administrator access. Other usernames are regular
+users. The local administrator is configured explicitly through
+`auth.adminUsers` in `helm/values-local.yaml`.
+
+The underlying authentication API accepts any nonempty username and also
+accepts an empty password. The browser form imposes the stricter email-address
+and nonempty-password requirements above.
+
+Signup, signup confirmation, and password reset are not available with the
+local authenticator. Those operations return HTTP 501 even though their links
+can appear in the UI.
+
+This authenticator is only for local development and evaluation. Do not use it
+for a deployment that untrusted users can reach.
+
 If the hostname does not resolve, update the local hostname configuration:
 
 ```bash

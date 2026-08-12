@@ -59,8 +59,11 @@ builds the BeakerHub images, generates the local vault key, and installs the
 Helm chart. Generated kind configuration, certificates, and secret values are
 ignored by Git.
 
-After setup, open `https://beakerhub.internal`. See the
-[Quick Start](docs/QUICKSTART.md) for access alternatives and troubleshooting.
+After setup, open `https://beakerhub.internal`. The local development
+authenticator accepts any valid email address and any nonempty password; it
+does not verify the credentials. See the [Quick Start](docs/QUICKSTART.md) for
+the complete local authentication behavior, access alternatives, and
+troubleshooting.
 
 ## Development workflow
 
@@ -145,9 +148,11 @@ beakerhub/
 
 ## Configuration
 
-`helm/beakerhub/values.yaml` contains generic chart defaults. It uses the
-JupyterHub dummy authenticator by default so that the chart can be evaluated
-without access to an external identity provider.
+`helm/beakerhub/values.yaml` contains generic chart defaults. It uses
+JupyterHub's dummy authenticator by default so that the chart can be evaluated
+without access to an external identity provider. The local development overlay
+uses BeakerHub's custom development authenticator instead; see the [Quick
+Start](docs/QUICKSTART.md#local-authentication).
 
 For a real deployment, create a separate values file and configure at least:
 

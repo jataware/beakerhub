@@ -91,3 +91,6 @@ auth:
   authenticator_class: "beakerhub.auth.dummy.DummyBeakerhubAuthenticator"
   # Allow all users (for development)
   allowAll: true
+  # Explicit local administrator
+  adminUsers:
+    - admin@example.com

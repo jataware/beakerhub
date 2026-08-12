@@ -84,6 +84,26 @@ make -C helm upgrade-local
 make -C helm rollout
 ```
 
+## Local authentication
+
+`helm/values-local.yaml` replaces the generic chart's JupyterHub
+`DummyAuthenticator` with BeakerHub's `DummyBeakerhubAuthenticator`. This
+custom authenticator accepts every nonempty username without verifying the
+password. It returns the username unchanged. Administrator access follows
+JupyterHub's standard `Authenticator.admin_users` configuration. The local
+overlay configures `admin@example.com` as the administrator through
+`auth.adminUsers`.
+
+The Vue login form requires the username to be a valid email address and the
+password to be nonempty. Therefore, normal browser login uses any valid email
+address and any nonempty password. Direct API requests are less restrictive:
+the authenticator accepts an empty password and does not require an email-shaped
+username.
+
+The local authenticator does not implement signup, signup confirmation, or
+password reset. These operations return HTTP 501. It provides no security and
+must not be used for a deployment that untrusted users can reach.
+
 ## Python backend
 
 Backend code is in `src/beakerhub/`. BeakerHub extends JupyterHub with custom

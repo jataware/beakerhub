@@ -113,7 +113,11 @@ hostnames. The default authentication mode is JupyterHub's dummy authenticator.
 
 This overlay adapts the chart for the local kind environment. It configures the
 local registry, ingress hostnames, development resource sizes, and optional
-Vite server.
+Vite server. It also replaces the generic chart's JupyterHub dummy
+authenticator with BeakerHub's development authenticator. The browser login
+accepts any valid email address and any nonempty password without verifying
+them. See [Local authentication](../docs/QUICKSTART.md#local-authentication) for
+its complete behavior and security warning.
 
 ### `values-secret.yaml`
 

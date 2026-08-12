@@ -15,8 +15,9 @@ class DummyBeakerhubAuthenticator(Authenticator, metaclass=BeakerhubAuthenticato
     provisioning a Cognito user pool. It performs NO real authentication and must
     never be used for a deployment that is reachable by untrusted users.
 
-    Admin status still follows the standard ``Authenticator.admin_users`` config;
-    ``Authenticator.allow_all`` should be enabled for anyone to be permitted in.
+    Admin status follows the standard ``Authenticator.admin_users``
+    configuration. ``Authenticator.allow_all`` should be enabled for anyone to
+    be permitted in.
     """
 
     login_service = "Local (development)"
@@ -40,10 +41,7 @@ class DummyBeakerhubAuthenticator(Authenticator, metaclass=BeakerhubAuthenticato
             return None
 
         self.log.info(f"DummyBeakerhubAuthenticator logging in user: {username}")
-        user_info = {"name": username}
-        if "admin" in username:
-            user_info["admin"] = True
-        return user_info
+        return {"name": username}
 
     async def logout(self, user: User):
         # No upstream session to invalidate; the login cookie is cleared by the
