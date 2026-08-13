@@ -1,6 +1,3 @@
-# TEMPORARY 
-.github/workflows/**
-
 # Python
 **/__pycache__/**
 *.pyc

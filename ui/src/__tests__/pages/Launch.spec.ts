@@ -12,7 +12,6 @@ vi.mock('@jupyterlab/coreutils', () => ({
 }));
 
 // Mock vue-router
-const mockPush = vi.fn();
 const mockReplace = vi.fn();
 const mockRoute: any = {
   params: { context: 'weather', session: '' },
@@ -21,7 +20,6 @@ const mockRoute: any = {
 };
 vi.mock('vue-router', () => ({
   useRouter: () => ({
-    push: mockPush,
     replace: mockReplace,
     resolve: (to: any) => ({ href: `/session/${to.params?.session || ''}` }),
     currentRoute: { value: mockRoute },
@@ -367,7 +365,7 @@ describe('Launch', () => {
       const connectBtn = wrapper.find('#connect-to-server');
       await connectBtn.trigger('click');
 
-      expect(mockPush).toHaveBeenCalledWith(
+      expect(mockReplace).toHaveBeenCalledWith(
         expect.objectContaining({
           name: 'session',
           params: expect.objectContaining({ session: 'test-session-123' }),

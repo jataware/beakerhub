@@ -45,6 +45,14 @@ vi.mock('@/stores/user', () => ({
 }));
 
 describe('UserMenuButton', () => {
+  const mountUserMenuButton = () => mount(UserMenuButton, {
+    global: {
+      stubs: {
+        RouterLink: true,
+      },
+    },
+  });
+
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
@@ -64,7 +72,7 @@ describe('UserMenuButton', () => {
     it('should show login and signup options when not logged in', () => {
       mockUserStore.isLoggedIn = false;
 
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
 
       // Access the computed userMenuItems
       const vm = wrapper.vm as any;
@@ -75,30 +83,24 @@ describe('UserMenuButton', () => {
       expect(menuItems[1].label).toBe('Sign up');
     });
 
-    it('should navigate to login when login clicked', async () => {
+    it('should link the login item to login', () => {
       mockUserStore.isLoggedIn = false;
 
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
       const vm = wrapper.vm as any;
       const menuItems = vm.userMenuItems;
 
-      // Execute the login command
-      menuItems[0].command();
-
-      expect(mockPush).toHaveBeenCalledWith({name: 'login'});
+      expect(menuItems[0].route).toEqual({ name: 'login' });
     });
 
-    it('should navigate to signup when signup clicked', async () => {
+    it('should link the signup item to signup', () => {
       mockUserStore.isLoggedIn = false;
 
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
       const vm = wrapper.vm as any;
       const menuItems = vm.userMenuItems;
 
-      // Execute the signup command
-      menuItems[1].command();
-
-      expect(mockPush).toHaveBeenCalledWith({name: 'signup'});
+      expect(menuItems[1].route).toEqual({ name: 'signup' });
     });
   });
 
@@ -107,7 +109,7 @@ describe('UserMenuButton', () => {
       mockUserStore.isLoggedIn = true;
       mockUserStore.username = 'testuser@example.com';
 
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
       const vm = wrapper.vm as any;
       const menuItems = vm.userMenuItems;
 
@@ -122,7 +124,7 @@ describe('UserMenuButton', () => {
       mockUserStore.username = 'admin@example.com';
       mockUserStore.isAdmin = true;
 
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
       const vm = wrapper.vm as any;
       const menuItems = vm.userMenuItems;
 
@@ -135,7 +137,7 @@ describe('UserMenuButton', () => {
       mockUserStore.isLoggedIn = true;
       mockUserStore.username = 'testuser@example.com';
 
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
       const vm = wrapper.vm as any;
       const menuItems = vm.userMenuItems;
 
@@ -148,7 +150,7 @@ describe('UserMenuButton', () => {
 
   describe('Rendering', () => {
     it('should render a button with user icon', () => {
-      const wrapper = mount(UserMenuButton);
+      const wrapper = mountUserMenuButton();
 
       const button = wrapper.find('button');
       expect(button.exists()).toBe(true);

@@ -1,17 +1,7 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { mount, config } from '@vue/test-utils';
+import { mount } from '@vue/test-utils';
 import { setActivePinia, createPinia } from 'pinia';
 import Header from '@/components/Header.vue';
-
-// Mock vue-router
-const mockPush = vi.fn();
-const mockCurrentRoute = { value: { name: 'dashboard' } };
-vi.mock('vue-router', () => ({
-  useRouter: () => ({
-    push: mockPush,
-    currentRoute: mockCurrentRoute,
-  }),
-}));
 
 // Mock PrimeVue components
 vi.mock('primevue/button', () => ({
@@ -59,10 +49,22 @@ vi.mock('@/stores/user', () => ({
 describe('Header', () => {
   let localStorageMock: { getItem: ReturnType<typeof vi.fn>; setItem: ReturnType<typeof vi.fn> };
 
+  const mountHeader = (props = {}) => mount(Header, {
+    props,
+    global: {
+      stubs: {
+        RouterLink: {
+          name: 'RouterLink',
+          props: ['to'],
+          template: '<a class="router-link-stub"><slot /></a>',
+        },
+      },
+    },
+  });
+
   beforeEach(() => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
-    mockCurrentRoute.value = { name: 'dashboard' };
 
     // Reset localStorage mock
     localStorageMock = {
@@ -84,7 +86,7 @@ describe('Header', () => {
 
   describe('Rendering', () => {
     it('should render with default props', () => {
-      const wrapper = mount(Header);
+      const wrapper = mountHeader();
 
       expect(wrapper.find('.header-container').exists()).toBe(true);
       expect(wrapper.find('.mock-header-logo').exists()).toBe(true);
@@ -92,17 +94,13 @@ describe('Header', () => {
     });
 
     it('should apply sticky class when sticky prop is true', () => {
-      const wrapper = mount(Header, {
-        props: { sticky: true },
-      });
+      const wrapper = mountHeader({ sticky: true });
 
       expect(wrapper.find('.header-container.sticky').exists()).toBe(true);
     });
 
     it('should not apply sticky class when sticky prop is false', () => {
-      const wrapper = mount(Header, {
-        props: { sticky: false },
-      });
+      const wrapper = mountHeader({ sticky: false });
 
       expect(wrapper.find('.header-container.sticky').exists()).toBe(false);
     });
@@ -112,7 +110,7 @@ describe('Header', () => {
     it('should show moon icon when in light mode', () => {
       localStorageMock.getItem.mockReturnValue(null);
 
-      const wrapper = mount(Header);
+      const wrapper = mountHeader();
 
       expect(wrapper.find('i.pi-moon').exists()).toBe(true);
     });
@@ -120,7 +118,7 @@ describe('Header', () => {
     it('should show sun icon when in dark mode', () => {
       localStorageMock.getItem.mockReturnValue('dark');
 
-      const wrapper = mount(Header);
+      const wrapper = mountHeader();
 
       expect(wrapper.find('i.pi-sun').exists()).toBe(true);
     });
@@ -128,7 +126,7 @@ describe('Header', () => {
     it('should call localStorage.setItem when toggling dark mode', async () => {
       localStorageMock.getItem.mockReturnValue(null);
 
-      const wrapper = mount(Header);
+      const wrapper = mountHeader();
 
       // Find the dark mode toggle button (the one with pi-moon or pi-sun)
       const buttons = wrapper.findAll('button');
@@ -146,29 +144,12 @@ describe('Header', () => {
   });
 
   describe('Logo Navigation', () => {
-    it('should navigate to home when logo clicked and not on home page', async () => {
-      mockCurrentRoute.value = { name: 'dashboard' };
+    it('should link the logo to home', () => {
+      const wrapper = mountHeader();
+      const logoLink = wrapper.findComponent({ name: 'RouterLink' });
 
-      const wrapper = mount(Header);
-
-      // Find the first button in header-icon (the logo button)
-      const logoButton = wrapper.find('.header-icon button');
-      expect(logoButton.exists()).toBe(true);
-      await logoButton.trigger('click');
-
-      expect(mockPush).toHaveBeenCalledWith({ name: 'home' });
-    });
-
-    it('should not navigate when already on home page', async () => {
-      mockCurrentRoute.value = { name: 'home' };
-
-      const wrapper = mount(Header);
-
-      const logoButton = wrapper.find('.header-icon button');
-      await logoButton.trigger('click');
-
-      // Should not push when already on home
-      expect(mockPush).not.toHaveBeenCalled();
+      expect(logoLink.exists()).toBe(true);
+      expect(logoLink.props('to')).toEqual({ name: 'home' });
     });
   });
 });
