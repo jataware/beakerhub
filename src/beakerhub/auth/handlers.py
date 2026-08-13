@@ -58,7 +58,7 @@ class LoginHandler(AuthAPIHandler):
             # ensures we are as far from expiration as possible
             # to restart the timer
             xsrf_token = self.xsrf_token
-            self.log.warning(f"Setting xsrf cookie to {xsrf_token}")
+            self.log.warning(f"Setting fresh xsrf cookie.")
             _set_xsrf_cookie(
                 self,
                 self._xsrf_token_id,
@@ -122,7 +122,6 @@ class LogoutHandler(AuthAPIHandler):
             delattr(self, "_xsrf_token")
 
         new_token = self.xsrf_token
-        self.log.warning(f"\n{old_token}\n{new_token}")
         _set_xsrf_cookie(
             self,
             self._xsrf_token_id,
