@@ -24,7 +24,7 @@ jobs:
               run: |
                   sudo apt update || true
                   sudo apt install -y nodejs npm python3-pip || true
-                  pip install uv
+                  pip install uv hatch
 
             - name: Checkout
               uses: actions/checkout@v5

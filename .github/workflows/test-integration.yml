@@ -43,18 +43,18 @@ jobs:
 
       - name: Install Python dependencies
         run: |
-          pip install pytest requests
+          pip install hatch uv
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Create local registry
-        run: |
-          docker run -d \
-            -p 5000:5000 \
-            --name ${{ env.REGISTRY_NAME }} \
-            --restart=always \
-            registry:2
+      # - name: Create local registry
+      #   run: |
+      #     docker run -d \
+      #       -p 5000:5000 \
+      #       --name ${{ env.REGISTRY_NAME }} \
+      #       --restart=always \
+      #       registry:2
 
       - name: Install kind
         run: |
@@ -72,51 +72,50 @@ jobs:
         run: |
           curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
 
-      - name: Create kind cluster
-        run: |
-          cat <<EOF | kind create cluster --name ${{ env.CLUSTER_NAME }} --config=-
-          kind: Cluster
-          apiVersion: kind.x-k8s.io/v1alpha4
-          containerdConfigPatches:
-          - |-
-            [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
-              endpoint = ["http://${{ env.REGISTRY_NAME }}:5000"]
-          EOF
+      # - name: Create kind cluster
+      #   run: |
+      #     cat <<EOF | kind create cluster --name ${{ env.CLUSTER_NAME }} --config=-
+      #     kind: Cluster
+      #     apiVersion: kind.x-k8s.io/v1alpha4
+      #     containerdConfigPatches:
+      #     - |-
+      #       [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:5000"]
+      #         endpoint = ["http://${{ env.REGISTRY_NAME }}:5000"]
+      #     EOF
 
-      - name: Connect registry to kind network
-        run: |
-          docker network connect kind ${{ env.REGISTRY_NAME }} || true
+      # - name: Connect registry to kind network
+      #   run: |
+      #     docker network connect kind ${{ env.REGISTRY_NAME }} || true
 
-      - name: Build and push images to local registry
-        run: |
-          cd images
-          make dev
-        env:
-          REGISTRY: localhost:5000
+      # - name: Build and push images to local registry
+      #   run: |
+      #     make build-dev-images
+      #   env:
+      #     REGISTRY_URL: localhost:5000
 
-      - name: Deploy BeakerHub via Helm
-        run: |
-          helm upgrade --install beakerhub-test \
-            kubernetes/helm-charts/beakerhub \
-            -n beakerhub \
-            --create-namespace \
-            -f kubernetes/values-local.yaml \
-            --wait \
-            --timeout 10m
+      # - name: Deploy BeakerHub via Helm
+      #   run: |
+      #     helm upgrade --install beakerhub-test \
+      #       kubernetes/helm-charts/beakerhub \
+      #       -n beakerhub \
+      #       --create-namespace \
+      #       -f kubernetes/values-local.yaml \
+      #       --wait \
+      #       --timeout 10m
 
-      - name: Wait for deployment
-        run: |
-          kubectl wait --for=condition=available deployment/hub -n beakerhub --timeout=300s
-          kubectl wait --for=condition=available deployment/proxy -n beakerhub --timeout=300s
+      # - name: Wait for deployment
+      #   run: |
+      #     kubectl wait --for=condition=available deployment/hub -n beakerhub --timeout=300s
+      #     kubectl wait --for=condition=available deployment/proxy -n beakerhub --timeout=300s
 
       - name: Run integration tests
-        run: |
-          # Start port-forward in background
-          kubectl port-forward -n beakerhub svc/proxy-public 8888:80 &
-          sleep 5
+        run: hatch run test:integration
+          # # Start port-forward in background
+          # kubectl port-forward -n beakerhub svc/proxy-public 8888:80 &
+          # sleep 5
 
-          # Run tests
-          python -m pytest tests/integration -v --tb=short
+          # # Run tests
+          # python -m pytest tests/integration -v --tb=short
         env:
           KEEP_TEST_CLUSTER: "1"
 

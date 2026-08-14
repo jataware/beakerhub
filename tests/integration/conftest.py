@@ -17,6 +17,7 @@ Setup:
 
 import os
 import subprocess
+import tempfile
 import time
 from typing import Generator
 
@@ -69,18 +70,24 @@ def test_cluster() -> Generator[dict, None, None]:
     Set KEEP_TEST_CLUSTER=1 to preserve the cluster after tests.
     """
     keep_cluster = os.environ.get("KEEP_TEST_CLUSTER", "0") == "1"
-    cluster_exists = False
+    cluster_created = False
+    port_forward_proc: subprocess.Popen | None = None
 
-    # Check if cluster already exists
-    result = run_command(["kind", "get", "clusters"], check=False)
-    if result.returncode == 0 and TEST_CLUSTER_NAME in result.stdout.split():
-        print(f"Test cluster '{TEST_CLUSTER_NAME}' already exists, reusing...")
-        cluster_exists = True
-    else:
-        print(f"Creating test cluster '{TEST_CLUSTER_NAME}'...")
+    try:
+        # Check if cluster already exists
+        result = run_command(["kind", "get", "clusters"], check=False)
+        cluster_exists = (
+            result.returncode == 0
+            and TEST_CLUSTER_NAME in result.stdout.split()
+        )
+        if cluster_exists:
+            print(f"Test cluster '{TEST_CLUSTER_NAME}' already exists, reusing...")
+        else:
+            print(f"Creating test cluster '{TEST_CLUSTER_NAME}'...")
+            cluster_created = True
 
-        # Create kind cluster config
-        kind_config = f"""
+            # Create kind cluster config
+            kind_config = f"""
 kind: Cluster
 apiVersion: kind.x-k8s.io/v1alpha4
 name: {TEST_CLUSTER_NAME}
@@ -91,83 +98,111 @@ containerdConfigPatches:
   [plugins."io.containerd.grpc.v1.cri".registry.mirrors."{REGISTRY_NAME}:5000"]
     endpoint = ["http://{REGISTRY_NAME}:5000"]
 """
-        # Write config to temp file
-        config_path = "/tmp/kind-test-config.yaml"
-        with open(config_path, "w") as f:
-            f.write(kind_config)
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".yaml",
+            ) as config_file:
+                config_file.write(kind_config)
+                config_file.flush()
+                run_command(
+                    [
+                        "kind",
+                        "create",
+                        "cluster",
+                        "--config",
+                        config_file.name,
+                    ]
+                )
 
-        # Create cluster
-        run_command(["kind", "create", "cluster", "--config", config_path])
+            # Connect registry to kind network (if not already connected)
+            run_command(
+                ["docker", "network", "connect", "kind", REGISTRY_NAME],
+                check=False,  # May already be connected
+            )
 
-        # Connect registry to kind network (if not already connected)
+        # Set kubectl context
         run_command(
-            ["docker", "network", "connect", "kind", REGISTRY_NAME],
-            check=False,  # May already be connected
+            ["kubectl", "config", "use-context", f"kind-{TEST_CLUSTER_NAME}"]
         )
 
-    # Set kubectl context
-    run_command(["kubectl", "config", "use-context", f"kind-{TEST_CLUSTER_NAME}"])
+        # Get project root directory
+        project_root = os.path.dirname(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        )
+        helm_chart_path = os.path.join(project_root, "helm", "beakerhub")
+        values_local_path = os.path.join(project_root, "helm", "values-local.yaml")
 
-    # Get project root directory
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    helm_chart_path = os.path.join(project_root, "kubernetes", "helm-charts", "beakerhub")
-    values_local_path = os.path.join(project_root, "kubernetes", "values-local.yaml")
+        # Install/upgrade BeakerHub
+        print("Installing BeakerHub via helm...")
+        helm_cmd = [
+            "helm",
+            "upgrade",
+            "--install",
+            HELM_RELEASE_NAME,
+            helm_chart_path,
+            "-n",
+            TEST_NAMESPACE,
+            "--create-namespace",
+            "-f",
+            values_local_path,
+            "--wait",
+            "--timeout",
+            "5m",
+        ]
+        run_command(helm_cmd)
 
-    # Install/upgrade BeakerHub
-    print("Installing BeakerHub via helm...")
-    helm_cmd = [
-        "helm", "upgrade", "--install", HELM_RELEASE_NAME,
-        helm_chart_path,
-        "-n", TEST_NAMESPACE,
-        "--create-namespace",
-        "-f", values_local_path,
-        "--wait",
-        "--timeout", "5m",
-    ]
-    run_command(helm_cmd)
+        # Get service URL (using port-forward for simplicity)
+        # In a more complete setup, you'd use an ingress or LoadBalancer
+        print("Setting up port-forward to BeakerHub...")
 
-    # Get service URL (using port-forward for simplicity)
-    # In a more complete setup, you'd use an ingress or LoadBalancer
-    print("Setting up port-forward to BeakerHub...")
+        # Start port-forward in background
+        port_forward_proc = subprocess.Popen(
+            [
+                "kubectl",
+                "port-forward",
+                "-n",
+                TEST_NAMESPACE,
+                "svc/proxy-public",
+                "8888:80",
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
 
-    # Start port-forward in background
-    port_forward_proc = subprocess.Popen(
-        [
-            "kubectl", "port-forward",
-            "-n", TEST_NAMESPACE,
-            "svc/proxy-public",
-            "8888:80",
-        ],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+        base_url = "http://localhost:8888"
 
-    base_url = "http://localhost:8888"
+        # Wait for service to be ready
+        print("Waiting for BeakerHub to be ready...")
+        if not wait_for_url(f"{base_url}/_chp_healthz"):
+            raise RuntimeError("BeakerHub failed to become ready within timeout")
 
-    # Wait for service to be ready
-    print("Waiting for BeakerHub to be ready...")
-    if not wait_for_url(f"{base_url}/_chp_healthz"):
-        port_forward_proc.terminate()
-        raise RuntimeError("BeakerHub failed to become ready within timeout")
+        print(f"BeakerHub is ready at {base_url}")
 
-    print(f"BeakerHub is ready at {base_url}")
-
-    yield {
-        "base_url": base_url,
-        "cluster_name": TEST_CLUSTER_NAME,
-        "namespace": TEST_NAMESPACE,
-        "port_forward_proc": port_forward_proc,
-    }
-
-    # Cleanup
-    port_forward_proc.terminate()
-    port_forward_proc.wait()
-
-    if not keep_cluster and not cluster_exists:
-        print(f"Deleting test cluster '{TEST_CLUSTER_NAME}'...")
-        run_command(["kind", "delete", "cluster", "-n", TEST_CLUSTER_NAME], check=False)
-    else:
-        print(f"Keeping test cluster '{TEST_CLUSTER_NAME}' (set KEEP_TEST_CLUSTER=0 to delete)")
+        yield {
+            "base_url": base_url,
+            "cluster_name": TEST_CLUSTER_NAME,
+            "namespace": TEST_NAMESPACE,
+            "port_forward_proc": port_forward_proc,
+        }
+    finally:
+        try:
+            if port_forward_proc is not None:
+                port_forward_proc.terminate()
+                port_forward_proc.wait()
+        finally:
+            if cluster_created and not keep_cluster:
+                print(f"Deleting test cluster '{TEST_CLUSTER_NAME}'...")
+                run_command(
+                    ["kind", "delete", "cluster", "-n", TEST_CLUSTER_NAME],
+                    check=False,
+                )
+            elif cluster_created:
+                print(
+                    f"Keeping test cluster '{TEST_CLUSTER_NAME}' "
+                    "because KEEP_TEST_CLUSTER=1"
+                )
+            else:
+                print(f"Keeping pre-existing test cluster '{TEST_CLUSTER_NAME}'")
 
 
 @pytest.fixture(scope="session")
