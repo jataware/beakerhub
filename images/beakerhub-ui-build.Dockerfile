@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
     apt update -y && \
     apt install -y nodejs
 
-COPY --from=ui-src . /build
+COPY --from=src ./ /build
 
 WORKDIR /build
-RUN npm i && npm run build && cp -r /build/dist /ui
+RUN npm i && npm run ui:build && cp -r /build/ui/dist /ui

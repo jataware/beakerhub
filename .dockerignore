@@ -5,6 +5,7 @@
 !README.md
 !pyproject.toml
 !images/config_files
+!package*.json
 
 **/dist
 **/build

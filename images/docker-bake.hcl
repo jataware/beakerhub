@@ -92,7 +92,7 @@ target "beakerhub-ui" {
   dockerfile = "beakerhub-ui-build.Dockerfile"
   contexts = {
     base = "target:base"
-    ui-src = "../ui"
+    src = "../"
   }
   output = ["type=cacheonly"]
 }
