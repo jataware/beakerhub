@@ -19,6 +19,9 @@ beakerhub.sqlite
 **/kind-config.yaml
 **/values-secret.yaml
 
+# UI build artifacts
+src/beakerhub/ui/
+
 # Jupyterhub config files
 jupyterhub*
 

@@ -49,6 +49,17 @@ Source = "https://github.com/jataware/beakerhub"
 [tool.hatch.version]
 path = "src/beakerhub/__about__.py"
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/beakerhub"]
+artifacts = [
+  "src/beakerhub/ui/**",
+]
+
+[tool.hatch.build.targets.sdist]
+artifacts = [
+  "src/beakerhub/ui/**",
+]
+
 [project.entry-points."jupyter_client.kernel_provisioners"]
 kubernetes-local-provisioner = "beakerhub.spawner.provisioner:KubernetesLocalProvisioner"
 

@@ -224,3 +224,15 @@ full-clean:
 	$(MAKE) clean-dev-dns
 	$(MAKE) clean-dev-registry
 	docker image rm -f jataware/doll:latest andyshinn/dnsmasq >/dev/null 2>&1 || true
+
+
+node_modules:package.json package-lock.json
+	npm i
+
+src/beakerhub/ui:node_modules
+	npm run ui:build && \
+	cp -r ui/dist src/beakerhub/ui
+
+.PHONY: build
+build:src/beakerhub/ui pyproject.toml
+	hatch build

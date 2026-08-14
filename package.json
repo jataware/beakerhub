@@ -1,0 +1,21 @@
+{
+  "name": "beakerhub-workspace",
+  "private": true,
+  "workspaces": [
+    "ui"
+  ],
+  "scripts": {
+    "ui:build": "npm run build --workspace=beakerhub-ui --outDir=./html",
+    "ui:dev": "npm run dev --workspace=beakerhub-ui",
+    "ui:test": "npm run test:unit --workspace=beakerhub-ui"
+  },
+  "dependencies": {
+    "configurable-http-proxy": "^5.3.0"
+  },
+  "overrides": {
+    "vite-plugin-top-level-await": {
+      "@swc/core": "1.15.3",
+      "@swc/wasm": "1.15.3"
+    }
+  }
+}

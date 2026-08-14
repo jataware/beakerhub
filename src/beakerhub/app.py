@@ -1,4 +1,5 @@
 import os.path
+from pathlib import Path
 
 import traitlets
 from jupyterhub.app import JupyterHub
@@ -14,6 +15,9 @@ from beakerhub.api_handlers import handlers as api_handlers
 from beakerhub.admin_handlers import admin_handlers
 from beakerhub.nodes.import_handlers import import_handlers
 from beakerhub.dashboard_handlers import dashboard_handlers
+
+
+PACKAGE_ROOT = Path(__file__).resolve().parent
 
 
 class BeakerHub(JupyterHub):
@@ -91,7 +95,7 @@ class BeakerHub(JupyterHub):
 
     # Configurable path to Vue build output
     beaker_static_path = Unicode(
-        "./ui/dist",
+        str(PACKAGE_ROOT / "ui"),
         config=True,
         help="Path to the built Vue application static files"
     )
