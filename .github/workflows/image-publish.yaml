@@ -84,11 +84,13 @@ jobs:
       - name: Push image to ECR Public
         env:
           IMAGE: ${{ matrix.image }}
-          IMAGE_TAG: ${{ github.ref_name }}
+          VERSION_TAG: ${{ github.ref_name }}
+          EXTRA_TAGS: latest
         run: |
-          source_image="${GHCR_REPOSITORY_PREFIX}/${IMAGE}:${IMAGE_TAG}"
-          destination_image="${ECR_REPOSITORY_PREFIX}/${IMAGE}:${IMAGE_TAG}"
-
-          docker pull "${source_image}"
-          docker tag "${source_image}" "${destination_image}"
-          docker push "${destination_image}"
+          for tag in "${VERSION_TAG}" ${EXTRA_TAGS}; do
+            source_image="${GHCR_REPOSITORY_PREFIX}/${IMAGE}:${tag}"
+            docker pull "${source_image}"
+            destination_image="${ECR_REPOSITORY_PREFIX}/${IMAGE}:${tag}"
+            docker tag "${source_image}" "${destination_image}"
+            docker push "${destination_image}"
+          done
