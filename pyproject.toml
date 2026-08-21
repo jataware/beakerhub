@@ -61,7 +61,7 @@ artifacts = [
 ]
 
 [project.entry-points."jupyter_client.kernel_provisioners"]
-kubernetes-local-provisioner = "beakerhub.spawner.provisioner:KubernetesLocalProvisioner"
+beakerhub-local-provisioner = "beakerhub.services.spawner.provisioner:BeakerhubLocalProvisioner"
 
 [tool.hatch.envs.types]
 extra-dependencies = [

@@ -6,47 +6,17 @@ from kubespawner.spawner import KubeSpawner
 from traitlets import default, validate, Unicode, Dict, List
 from traitlets.config import Application
 
-from beakerhub.auth.user import BeakerhubUser
-from beakerhub.spawner.base import BeakerSpawner
-from beakerhub.services.secrets import VAULT_ENV_VAR_LIST_KEY
+from beakerhub.services.spawner.base import BeakerSpawner, BeakerhubImageSpawner
 from beakerhub import orm
 
 
-class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
+class BeakerKubeSpawner(KubeSpawner, BeakerhubImageSpawner):
 
-    default_registry = Unicode().tag(config=True)
-    default_image = Unicode().tag(config=True)
-    default_tag = Unicode(default_value="latest").tag(config=True)
+    image = KubeSpawner.image
 
-    default_beaker_context = Unicode(
-        default_value="default",
-        help="Slug of context the Beaker kernel should be started with."
-    ).tag(config=True)
-
-    beaker_context = Unicode()
-    context_config = Dict()
-    node_env = Dict()
-    policy_override_env_key_suffix = Unicode(
-        default_value="_secret_policy",
-        help="",
-        config=True,
-    )
-    node_policy_overrides = Dict(
-        help="Secret-handling policy overrides for this launch, keyed by environment "
-             "variable name, e.g. {'SHARED_API_KEY': {'subkernel_environment_policy': 'allow'}}. "
-             "Resolved from the vault at spawn time and passed to the node as JSON."
-    )
-
-    @staticmethod
-    def image_has_defined_registry(image: str) -> bool:
-        image_parts = image.split("/")
-        if len(image_parts) == 1:
-            return False
-        return "." in image_parts[0] or ":" in image_parts[0]
-
-    @validate("default_registry")
-    def _validate_default_registry(self, proposal):
-        return proposal["value"].rstrip("/")
+    def get_env(self):
+        """Add BeakerHub variables after KubeSpawner builds its environment."""
+        return BeakerSpawner._extend_env(self, super().get_env())
 
     @default("delete_stopped_pods")
     def _default_delete_stopped_pods(self):
@@ -55,30 +25,6 @@ class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
     @default("namespace")
     def _default_namespace(self):
         return "beakerhub"
-
-    @default("default_image")
-    def _default_default_image(self):
-        return f"{self.default_registry}/beakerhub/default-node:{self.default_tag}"
-
-    @validate("default_image")
-    def _validate_default_image(self, proposal):
-        value = proposal["value"]
-        if not self.image_has_defined_registry(value):
-            return f"{self.default_registry}/{value}"
-        else:
-            return value
-
-    @default("image")
-    def _default_image(self):
-        return self.default_image
-
-    @validate("image")
-    def _validate_image(self, proposal):
-        value = proposal["value"]
-        if not self.image_has_defined_registry(value):
-            return f"{self.default_registry}/{value}"
-        else:
-            return value
 
     @default("pod_name_template")
     def _default_pod_name_template(self):
@@ -90,29 +36,6 @@ class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
         if "node" not in pod_name:
             return None
         return pod_name
-
-    def get_env(self):
-        user: BeakerhubUser = cast(BeakerhubUser, self.user)
-        env = super().get_env()
-        env.setdefault("JUPYTER_BASE_URL", user.server_url(server_name=self.name))
-        env.setdefault("BEAKER_DEFAULT_CONTEXT", self.beaker_context or self.default_beaker_context)
-        env.setdefault("BEAKERHUB_USER", user.name)
-        env.setdefault("BEAKER_UI_HIDE_CONTEXT_SELECTOR", "true")
-        env.update(self.node_env)
-        # Tell the node which variables came from the vault. It discovers secrets by name
-        # heuristic, which misses anything innocuous-looking, and an unrecognized vault
-        # secret gets no policies applied *and* no default protection either.
-        if self.node_env:
-            env.setdefault(VAULT_ENV_VAR_LIST_KEY, ",".join(sorted(self.node_env)))
-        # Policy metadata is not itself sensitive, so it travels as a plain env var.
-        # Only set it when there is something to say, so the node keeps its own default
-        # of "no overrides" rather than parsing an empty object.
-        for env_name, policy_dict in self.node_policy_overrides.items():
-            for policy_name, policy_value in policy_dict.items():
-                policy_key = f"{env_name}_{policy_name}{self.policy_override_env_key_suffix}"
-                env.setdefault(policy_key, policy_value)
-
-        return env
 
     @staticmethod
     def apply_user_options(spawner: "BeakerKubeSpawner", user_options: dict):

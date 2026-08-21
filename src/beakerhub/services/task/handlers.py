@@ -1,112 +1,17 @@
-"""
-API handlers for node image import tasks.
-
-Provides endpoints to:
-- Trigger a context import from a node image (admin, creates K8s Job)
-- Poll import task status (admin)
-- Receive results from the task reporter container (internal, token-auth)
-"""
+"""API handlers for background tasks."""
 import json
 import logging
 from datetime import datetime, timezone
-from secrets import token_urlsafe
-from typing import Any, TYPE_CHECKING
+from typing import Any
 
 from tornado import web
 from jupyterhub.apihandlers import APIHandler
 from jupyterhub.scopes import needs_scope
-from sqlalchemy.orm import Session
-
 from beakerhub.orm import NodeImages, NodeImageTask
-from beakerhub.nodes import tasks as k8s_tasks
-from beakerhub.utils import (
-    InterchangeDump,
-    deserialize_interchange_dump,
-    ingest_interchange_dump,
-)
-
-if TYPE_CHECKING:
-    from beakerhub.app import BeakerHub
+from beakerhub.tasks.image_import.task import launch_import_task
+from beakerhub.utils import ingest_interchange_dump
 
 log = logging.getLogger(__name__)
-
-
-def launch_import_task(
-    db: Session,
-    app: "BeakerHub",
-    node_image: NodeImages,
-) -> NodeImageTask:
-    """
-    Launch a context import K8s Job for the given node image.
-
-    Creates a NodeImageTask record, builds the callback URL, and submits
-    the K8s Job. Can be called from handlers, CLI, or anywhere with access
-    to the db session and app instance.
-
-    Args:
-        db: SQLAlchemy session.
-        app: The BeakerHub application instance.
-        node_image: The NodeImages record to import from.
-
-    Returns:
-        The created NodeImageTask record.
-
-    Raises:
-        ValueError: If an import is already running for this image.
-        RuntimeError: If K8s Job creation fails.
-    """
-    # Check for already-running import
-    existing_task = db.query(NodeImageTask).filter(
-        NodeImageTask.node_image_id == node_image.id,
-        NodeImageTask.task_type == "context_import",
-        NodeImageTask.status.in_(["pending", "running"]),
-    ).first()
-    if existing_task:
-        raise ValueError(
-            f"Import already in progress for image '{node_image.slug}' "
-            f"(job: {existing_task.job_name})"
-        )
-
-    # Create task record with callback token
-    callback_token = token_urlsafe(48)
-    task = NodeImageTask(
-        node_image_id=node_image.id,
-        task_type="context_import",
-        status="pending",
-        callback_token=callback_token,
-    )
-    db.add(task)
-    db.commit()
-
-    # Build callback URL using the hub's internal connect URL
-    hub_url = getattr(app, "hub_connect_url", "http://localhost:8888")
-    callback_url = f"{hub_url.rstrip('/')}/api/beakerhub/internal/task-callback/{callback_token}"
-    namespace = getattr(app, "task_namespace", "beakerhub")
-
-    # Create the K8s Job
-    try:
-        job_name = k8s_tasks.create_import_job(
-            app=app,
-            node_image=node_image,
-            callback_url=callback_url,
-            callback_token=callback_token,
-            namespace=namespace,
-        )
-    except Exception as e:
-        task.status = "failed"
-        task.error = f"Failed to create K8s Job: {e}"
-        task.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        log.exception(f"Failed to create import job for {node_image.slug}")
-        raise RuntimeError(f"Failed to create import job: {e}") from e
-
-    task.job_name = job_name
-    task.status = "running"
-    task.updated_at = datetime.now(timezone.utc)
-    db.commit()
-
-    log.info(f"Launched import job {job_name} for node image {node_image.slug}")
-    return task
 
 
 class NodeImageImportHandler(APIHandler):
@@ -114,7 +19,7 @@ class NodeImageImportHandler(APIHandler):
 
     @needs_scope('admin:users')
     async def post(self, image_id: str):
-        """Create a K8s Job to import context data from the node image."""
+        """Create a task to import context data from the node image."""
         node = self.db.query(NodeImages).filter(NodeImages.id == int(image_id)).first()
         if not node:
             raise web.HTTPError(404, f"Node image not found: {image_id}")
@@ -159,10 +64,11 @@ class NodeImageImportStatusHandler(APIHandler):
             self.write(json.dumps({"status": "none", "message": "No import has been run"}))
             return
 
-        # If task is still running, poll the K8s Job for updated status
+        # If the task is still running, poll the configured task runner.
         if task.status == "running" and task.job_name:
             try:
-                job_status = k8s_tasks.get_job_status(task.job_name)
+                app = self.settings["app"]
+                job_status = app.task_runner.get_status(task.job_name)
                 if job_status["status"] == "failed":
                     task.status = "failed"
                     task.error = job_status["message"]
@@ -196,7 +102,7 @@ class TaskCallbackHandler(APIHandler):
     """
 
     def check_xsrf_cookie(self):
-        # Internal endpoint called from K8s pod, no XSRF cookie
+        # Internal endpoint called by a task workload, with no XSRF cookie.
         return
 
     def get_current_user(self):
@@ -264,8 +170,10 @@ class TaskCallbackHandler(APIHandler):
         self.write(json.dumps({"status": "ok", "stats": combined_stats}))
 
 
-import_handlers = [
+handlers = [
     (r"/api/beakerhub/admin/node-images/(\d+)/import", NodeImageImportHandler),
     (r"/api/beakerhub/admin/node-images/(\d+)/import-status", NodeImageImportStatusHandler),
     (r"/api/beakerhub/internal/task-callback/([^/]+)", TaskCallbackHandler),
 ]
+
+api_handlers = handlers

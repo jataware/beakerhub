@@ -1,13 +1,13 @@
 # SPDX-FileCopyrightText: 2024-present Jataware Corp
 #
 # SPDX-License-Identifier: MIT
-"""Unit tests for beakerhub.spawner.kubernetes module."""
+"""Unit tests for the Kubernetes spawner service."""
 
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from beakerhub.spawner.kubernetes import BeakerKubeSpawner
+from beakerhub.services.spawner.kubernetes_spawner import BeakerKubeSpawner
 
 
 class TestBeakerKubeSpawner:

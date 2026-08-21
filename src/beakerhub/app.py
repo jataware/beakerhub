@@ -3,7 +3,7 @@ from pathlib import Path
 
 import traitlets
 from jupyterhub.app import JupyterHub
-from traitlets import Dict, Integer, List, Unicode, default
+from traitlets import Dict, Instance, Type, Unicode, default
 
 # Import orm tables so that they can be added.
 import beakerhub.orm # type: ignore
@@ -13,8 +13,18 @@ from beakerhub.auth.cognito import  CognitoBotoAuthenticator
 from beakerhub.handlers import get_override_handlers, HierarchicalStaticHandler, VueSPAHandler
 from beakerhub.api_handlers import handlers as api_handlers
 from beakerhub.admin_handlers import admin_handlers
-from beakerhub.nodes.import_handlers import import_handlers
-from beakerhub.dashboard_handlers import dashboard_handlers
+from beakerhub.services.dashboard.base import BaseDashboardService
+from beakerhub.services.dashboard.aws_ecs_dashboard import AwsEcsDashboardService
+from beakerhub.services.dashboard.handlers import handlers as dashboard_handlers
+from beakerhub.services.dashboard.kubernetes_dashboard import (
+    KubernetesDashboardService,
+)
+from beakerhub.services.task.base import BaseTaskRunnerService
+from beakerhub.services.task.aws_ecs_task_runner import AwsEcsTaskRunnerService
+from beakerhub.services.task.handlers import handlers as task_handlers
+from beakerhub.services.task.kubernetes_task_runner import (
+    KubernetesTaskRunnerService,
+)
 
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
@@ -27,52 +37,25 @@ class BeakerHub(JupyterHub):
     description = "Beakerhub version of: \n" + str(JupyterHub.description)
     example = "Beakerhub version of: \n" + str(JupyterHub.examples)
 
-    # ---- Task configuration (for node image import jobs) ----
-    task_reporter_image = Unicode(
-        "beakerhub/task-reporter:latest",
+    task_runner_class = Type(
+        KubernetesTaskRunnerService,
+        klass=BaseTaskRunnerService,
         config=True,
-        help="Full image reference for the task reporter container.",
+        help="Task-runner service used for background workloads.",
     )
-    task_reporter_pull_policy = Unicode(
-        "Always",
-        config=True,
-        help="Image pull policy for the task reporter container.",
+    task_runner = Instance(
+        BaseTaskRunnerService,
+        allow_none=False,
     )
-    task_reporter_resources = Dict(
+    dashboard_service_class = Type(
+        KubernetesDashboardService,
+        klass=BaseDashboardService,
         config=True,
-        help="Resource requests/limits for the task reporter container.",
+        help="Service used to collect runtime dashboard data and session logs.",
     )
-    task_node_image_resources = Dict(
-        config=True,
-        help="Resource requests/limits for the node image init container in tasks.",
-    )
-    task_backoff_limit = Integer(
-        0,
-        config=True,
-        help="Number of retries before marking a task Job as failed.",
-    )
-    task_active_deadline_seconds = Integer(
-        300,
-        config=True,
-        help="Maximum time in seconds a task Job can run before being terminated.",
-    )
-    task_ttl_seconds_after_finished = Integer(
-        600,
-        config=True,
-        help="Time in seconds to keep completed/failed Jobs before cleanup.",
-    )
-    task_node_selector = Dict(
-        config=True,
-        help="Node selector for task pods.",
-    )
-    task_tolerations = List(
-        config=True,
-        help="Tolerations for task pods.",
-    )
-    task_namespace = Unicode(
-        "beakerhub",
-        config=True,
-        help="Kubernetes namespace for task Jobs.",
+    dashboard_service = Instance(
+        BaseDashboardService,
+        allow_none=False,
     )
 
     enable_idle_session_culling = traitlets.Bool(
@@ -129,8 +112,30 @@ class BeakerHub(JupyterHub):
 
     @default("spawner_class")
     def _default_spawner_class(self):
-        from beakerhub.spawner.kubernetes import BeakerKubeSpawner
+        from beakerhub.services.spawner.kubernetes_spawner import BeakerKubeSpawner
         return BeakerKubeSpawner
+
+    @default("task_runner")
+    def _default_task_runner(self):
+        return self.task_runner_class(parent=self)
+
+    @default("dashboard_service")
+    def _default_dashboard_service(self):
+        return self.dashboard_service_class(parent=self)
+
+    def update_config(self, config):
+        """Refresh services created before JupyterHub loads its config file.
+
+        Child ``Configurable`` instances inherit their parent's config only at
+        construction time. JupyterHub loads ``beakerhub_config.py`` after the
+        application is constructed, so an already-created task runner would
+        otherwise retain its trait defaults.
+        """
+        super().update_config(config)
+        if "task_runner" in self._trait_values:
+            self.task_runner.update_config(config)
+        if "dashboard_service" in self._trait_values:
+            self.dashboard_service.update_config(config)
 
     @default("config_file")
     def _default_config_file(self):
@@ -154,8 +159,17 @@ class BeakerHub(JupyterHub):
     def _default_cookie_secret_file(self):
         return 'beakerhub_cookie_secret'
 
-    # Hoist from subclass to provide from new root app
-    classes = JupyterHub.classes
+    @default("classes")
+    def _default_classes(self):
+        return [
+            self.__class__,
+            BaseTaskRunnerService,
+            KubernetesTaskRunnerService,
+            AwsEcsTaskRunnerService,
+            BaseDashboardService,
+            KubernetesDashboardService,
+            AwsEcsDashboardService,
+        ]
 
     def init_db(self):
         if self.vault_encryption_key:
@@ -171,7 +185,13 @@ class BeakerHub(JupyterHub):
         """Initialize handlers, including custom Vue SPA handlers."""
         super().init_handlers()
 
-        override_handlers = get_override_handlers(self.base_url, self.beaker_static_path) + api_handlers + admin_handlers + import_handlers + dashboard_handlers
+        override_handlers = (
+            get_override_handlers(self.base_url, self.beaker_static_path)
+            + api_handlers
+            + admin_handlers
+            + task_handlers
+            + dashboard_handlers
+        )
         overridden_paths = {handler[0] for handler in override_handlers}
         overridden_paths.add(r'(.*)')  # 404NotFound path
         overridden_paths.update({path for path, *args in self.handlers if path.startswith("/admin")})
@@ -192,13 +212,13 @@ class BeakerHub(JupyterHub):
         later, in `init_role_assignment`, so the ordering is safe.
         """
         if self.enable_idle_session_culling:
-            from beakerhub.services.idle_culler import SERVICE_ROLE
+            from beakerhub.services.periodic_tasks.idle_culler import SERVICE_ROLE
             self.load_roles = [*self.load_roles, SERVICE_ROLE]
         await super().init_role_creation()
 
     def init_services(self):
         if self.enable_idle_session_culling:
-            from beakerhub.services.idle_culler import SERVICE_DEFINITION
+            from beakerhub.services.periodic_tasks.idle_culler import SERVICE_DEFINITION
             # Copy the definition. Mutating the module-level dict would make
             # this method unsafe to call more than once.
             service = dict(SERVICE_DEFINITION)

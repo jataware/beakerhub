@@ -46,7 +46,7 @@ def import_image(image_slug: str, config_file: str, db_url: str | None):
     """
     from beakerhub.app import BeakerHub
     from beakerhub.orm import NodeImages, NodeImageTask
-    from beakerhub.nodes.import_handlers import launch_import_task
+    from beakerhub.tasks.image_import.task import launch_import_task
 
     # Initialize app to load config (reporter image, resources, etc.)
     app = BeakerHub()

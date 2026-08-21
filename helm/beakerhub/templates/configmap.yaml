@@ -36,7 +36,7 @@ data:
             "Content-Security-Policy": "frame-ancestors 'self' {{ .Values.ingress.hosts.proxy }} *.{{ .Values.ingress.hosts.proxy }}",
         }
     }
-    c.KernelProvisionerFactory.default_provisioner_name = "kubernetes-local-provisioner"
+    c.KernelProvisionerFactory.default_provisioner_name = "beakerhub-local-provisioner"
 
     c.BaseBeakerApp.secrets_manager_class = "beakerhub.services.secrets.beakerhub.BeakerhubSecretsManager"
     c.BeakerhubSecretsManager.policy_override_env_key_suffix = "{{ .Values.secrets.policyOverrideEnvSuffix }}"
