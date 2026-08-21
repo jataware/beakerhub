@@ -3,8 +3,10 @@ import datetime
 import json
 import uuid
 from typing import Any
+from urllib.parse import quote
 
 from tornado import web
+from tornado.httpclient import AsyncHTTPClient, HTTPClientError, HTTPRequest
 from jupyterhub.apihandlers import APIHandler
 from jupyterhub.orm import Spawner
 from jupyterhub.scopes import needs_scope
@@ -340,6 +342,64 @@ def serialize_node_image_with_contexts(
         result["last_import"] = None
 
     return result
+
+
+def registry_api_url(registry: str, path: str) -> str:
+    """Build a Docker Registry HTTP API v2 URL from an image registry setting."""
+    registry = registry.rstrip("/")
+    if not registry.startswith(("http://", "https://")):
+        registry = f"https://{registry}"
+    return f"{registry}/v2/{path.lstrip('/')}"
+
+
+class AdminRegistryImageListHandler(APIHandler):
+    """List repositories and tags from the configured default Docker registry.
+
+    This deliberately uses the Registry HTTP API from the hub, rather than the
+    browser, so the configured registry does not need to provide CORS headers.
+    Authentication is not inferred from Kubernetes imagePullSecrets.
+    """
+
+    @needs_scope('admin:users')
+    async def get(self):
+        app = self.settings.get("app")
+        registry = app.config.get("BeakerKubeSpawner", {}).get("default_registry", "") if app else ""
+        registry = str(registry).rstrip("/")
+        if not registry:
+            raise web.HTTPError(400, "No default image registry is configured")
+
+        client = AsyncHTTPClient()
+        try:
+            catalog_response = await client.fetch(
+                HTTPRequest(registry_api_url(registry, "_catalog?n=1000"), request_timeout=10)
+            )
+            repositories = json.loads(catalog_response.body).get("repositories", [])
+            if not isinstance(repositories, list):
+                raise ValueError("Registry catalog response has an invalid repositories field")
+
+            images: list[dict[str, str]] = []
+            for repository in sorted(repo for repo in repositories if isinstance(repo, str)):
+                tags_response = await client.fetch(
+                    HTTPRequest(
+                        registry_api_url(registry, f"{quote(repository, safe='/')}/tags/list?n=1000"),
+                        request_timeout=10,
+                    )
+                )
+                tags = json.loads(tags_response.body).get("tags") or []
+                if not isinstance(tags, list):
+                    raise ValueError(f"Registry tags response for '{repository}' has an invalid tags field")
+                for tag in sorted(tag for tag in tags if isinstance(tag, str)):
+                    images.append({"repository": repository, "tag": tag})
+        except (HTTPClientError, ValueError, json.JSONDecodeError) as exc:
+            status = exc.code if isinstance(exc, HTTPClientError) else 502
+            if status in (401, 403):
+                message = "The configured registry requires authentication; registry credentials are not yet configured for catalog access."
+            else:
+                message = f"Unable to list images from registry '{registry}': {exc}"
+            raise web.HTTPError(status, message) from exc
+
+        self.set_header("Content-Type", "application/json")
+        self.write(json.dumps({"registry": registry, "images": images}))
 
 
 class AdminNodeImageListHandler(APIHandler):
@@ -1002,6 +1062,7 @@ admin_handlers = [
     (r"/api/beakerhub/admin/contexts", AdminContextListHandler),
     (r"/api/beakerhub/admin/contexts/([^/]+)", AdminContextDetailHandler),
     # Supporting entity lists
+    (r"/api/beakerhub/admin/registry-images", AdminRegistryImageListHandler),
     (r"/api/beakerhub/admin/node-images", AdminNodeImageListHandler),
     (r"/api/beakerhub/admin/node-images/(\d+)", AdminNodeImageDetailHandler),
     (r"/api/beakerhub/admin/workflows", AdminWorkflowListHandler),

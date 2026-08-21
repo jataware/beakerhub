@@ -126,6 +126,11 @@ export interface ImportEvent {
   result?: Record<string, number>;
 }
 
+export interface AdminRegistryImage {
+  repository: string;
+  tag: string;
+}
+
 export interface AdminNodeImage {
   id: number;
   slug: string;
@@ -313,6 +318,11 @@ export const useAdminStore = defineStore('admin', () => {
 
   // Supporting entities for context form
   const nodeImages = ref<AdminNodeImage[]>([]);
+  const registryName = ref('');
+  const registryImages = ref<AdminRegistryImage[]>([]);
+  const registryImagesLoading = ref(false);
+  const registryImagesError = ref('');
+  let registryImagesEtag = '';
   const allWorkflows = ref<AdminWorkflow[]>([]);
   const allIntegrations = ref<AdminIntegration[]>([]);
   const allLanguages = ref<AdminLanguage[]>([]);
@@ -389,6 +399,30 @@ export const useAdminStore = defineStore('admin', () => {
   // ============================================
 
   const nodeImagesLoading = ref(false);
+
+  async function fetchRegistryImages(): Promise<void> {
+    registryImagesLoading.value = true;
+    registryImagesError.value = '';
+    try {
+      const response = await fetch('/api/beakerhub/admin/registry-images', {
+        headers: registryImagesEtag ? { 'If-None-Match': registryImagesEtag } : {},
+      });
+      if (response.status === 304) {
+        return;
+      }
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(data.message || data.error || response.statusText || 'Failed to load registry images');
+      }
+      registryName.value = (data.registry || '').replace(/^https?:\/\//, '');
+      registryImages.value = data.images || [];
+      registryImagesEtag = response.headers.get('ETag') || '';
+    } catch (error: any) {
+      registryImagesError.value = error.message || 'Failed to load registry images.';
+    } finally {
+      registryImagesLoading.value = false;
+    }
+  }
 
   async function fetchNodeImages(): Promise<void> {
     nodeImagesLoading.value = true;
@@ -892,6 +926,10 @@ export const useAdminStore = defineStore('admin', () => {
     clusterInfoLoading,
     nodeImages,
     nodeImagesLoading,
+    registryName,
+    registryImages,
+    registryImagesLoading,
+    registryImagesError,
     allWorkflows,
     allIntegrations,
     allLanguages,
@@ -906,6 +944,7 @@ export const useAdminStore = defineStore('admin', () => {
 
     // Node image actions
     fetchNodeImages,
+    fetchRegistryImages,
     createNodeImage,
     updateNodeImage,
     deleteNodeImage,

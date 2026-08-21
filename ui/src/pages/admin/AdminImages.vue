@@ -117,12 +117,34 @@
       :style="{ width: '550px' }"
     >
       <div class="image-form">
-        <!-- Create mode: single image reference input -->
+        <!-- Create mode: custom reference or an image from the configured registry -->
         <template v-if="!editingImage">
           <div class="form-field">
             <label for="img-ref">Image <span class="required">*</span></label>
-            <InputText id="img-ref" v-model="imageRef" :disabled="dialogSaving" placeholder="e.g. localhost:5000/beakerhub/my-node:v1.0" />
-            <small>Full image reference. Tag defaults to <code>latest</code> if omitted.</small>
+            <InputText id="img-ref" v-model="imageRef" :disabled="dialogSaving" placeholder="Enter an image or select an option below" />
+            <small>Enter a full image reference, or select an image from the configured registry. Tag defaults to <code>latest</code> if omitted.</small>
+          </div>
+          <div class="form-field">
+            <div class="registry-list-header">
+              <label for="registry-images">Images in <b>{{ adminStore.registryName || 'default registry' }}</b></label>
+              <Button icon="pi pi-refresh" text size="small" :loading="adminStore.registryImagesLoading" :disabled="dialogSaving" @click="adminStore.fetchRegistryImages" title="Refresh registry images" />
+            </div>
+            <Listbox
+              id="registry-images"
+              v-model="selectedRegistryImage"
+              :options="adminStore.registryImages"
+              optionLabel="repository"
+              :disabled="dialogSaving || adminStore.registryImagesLoading"
+              filter
+              filterPlaceholder="Filter images"
+              emptyMessage="No images found"
+              class="registry-image-list"
+              @update:modelValue="selectRegistryImage"
+            >
+              <template #option="{ option }">{{ option.repository }}:{{ option.tag }}</template>
+            </Listbox>
+            <small v-if="adminStore.registryImagesLoading">Loading images from the configured registry…</small>
+            <small v-else-if="adminStore.registryImagesError" class="error-text">{{ adminStore.registryImagesError }}</small>
           </div>
           <div v-if="parsedImage.repository" class="parsed-preview">
             <div class="preview-row" v-if="parsedImage.registry">
@@ -222,6 +244,7 @@ import InputText from 'primevue/inputtext';
 import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 import Dialog from 'primevue/dialog';
+import Listbox from 'primevue/listbox';
 import Message from 'primevue/message';
 import { useConfirm } from 'primevue/useconfirm';
 import { useToast } from 'primevue/usetoast';
@@ -296,8 +319,10 @@ watch(metadataText, (val) => {
   }
 });
 
-// Create mode: single image reference input + parsing
+// A selected registry image writes its full reference into the same input used
+// for manually entered images.
 const imageRef = ref('');
+const selectedRegistryImage = ref<{ repository: string; tag: string } | null>(null);
 
 /**
  * Parse a Docker image reference into registry, repository, and tag.
@@ -343,12 +368,14 @@ const generatedSlug = computed(() => {
 });
 
 onMounted(() => {
+  adminStore.fetchRegistryImages();
   adminStore.fetchNodeImages();
 });
 
 function openCreateDialog() {
   editingImage.value = null;
   imageRef.value = '';
+  selectedRegistryImage.value = null;
   dialogForm.value = {
     slug: '',
     default_registry: '',
@@ -361,6 +388,13 @@ function openCreateDialog() {
   metadataError.value = '';
   dialogError.value = '';
   dialogVisible.value = true;
+}
+
+function selectRegistryImage(image: { repository: string; tag: string } | null) {
+  selectedRegistryImage.value = image;
+  if (image) {
+    imageRef.value = `${adminStore.registryName}/${image.repository}:${image.tag}`;
+  }
 }
 
 function openEditDialog(image: AdminNodeImage) {
@@ -615,6 +649,16 @@ function importTooltip(imp: AdminNodeImageImport): string {
 
 .error-text {
   color: var(--p-red-500, #ef4444);
+}
+
+.registry-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.registry-image-list {
+  width: 100%;
 }
 
 .parsed-preview {
