@@ -120,7 +120,7 @@ dependencies = [
 ]
 
 [tool.bumpversion]
-current_version = "0.0.1"
+current_version = "0.0.2"
 parse = "(?P<major>\\d+)\\.(?P<minor>\\d+)\\.(?P<patch>\\d+)((?P<release>[ab])(?P<revision>\\d+))?"
 serialize = [
   "{major}.{minor}.{patch}{release}{revision}",

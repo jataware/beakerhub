@@ -3,7 +3,7 @@ name: beakerhub
 description: A Helm chart for BeakerHub
 type: application
 version: 0.2.9
-appVersion: "0.0.1"
+appVersion: "0.0.2"
 keywords:
   - beaker
   - notebooks
