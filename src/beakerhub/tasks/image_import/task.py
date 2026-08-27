@@ -1,19 +1,34 @@
 """Orchestration for importing context metadata from a node image."""
 
+import json
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timezone
-from secrets import token_urlsafe
 from typing import TYPE_CHECKING
 
 from sqlalchemy.orm import Session
 
 from beakerhub.orm import NodeImages, NodeImageTask
+from beakerhub.services.task.base import TaskOutput
+from beakerhub.tasks.base import BaseImageTask
+from beakerhub.utils import ingest_interchange_dump
 
 if TYPE_CHECKING:
     from beakerhub.app import BeakerHub
 
 
 log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True, kw_only=True)
+class ImageImportTask(BaseImageTask):
+    """Definition of a task that imports context metadata from a node image."""
+
+    node_image: NodeImages
+
+    @property
+    def task_type(self) -> str:
+        return "context_import"
 
 
 def launch_import_task(
@@ -37,26 +52,22 @@ def launch_import_task(
             f"(job: {existing_task.job_name})"
         )
 
-    callback_token = token_urlsafe(48)
     task = NodeImageTask(
         node_image_id=node_image.id,
         task_type="context_import",
         status="pending",
-        callback_token=callback_token,
     )
     db.add(task)
     db.commit()
 
-    hub_url = getattr(app, "hub_connect_url", "http://localhost:8888")
-    callback_url = (
-        f"{hub_url.rstrip('/')}/api/beakerhub/internal/task-callback/"
-        f"{callback_token}"
-    )
     try:
-        external_task_id = app.task_runner.submit_image_import(
-            node_image=node_image,
-            callback_url=callback_url,
-            callback_token=callback_token,
+        running_task = app.task_runner.submit(
+            ImageImportTask(
+                image=node_image.default_img_string,
+                entrypoint=("sh", "-c"),
+                command=("beaker context dump",),
+                node_image=node_image,
+            )
         )
     except Exception as error:
         task.status = "failed"
@@ -66,13 +77,38 @@ def launch_import_task(
         log.exception("Failed to create import task for %s", node_image.slug)
         raise RuntimeError(f"Failed to create import task: {error}") from error
 
-    task.job_name = external_task_id
+    task.job_name = running_task.external_id
     task.status = "running"
     task.updated_at = datetime.now(timezone.utc)
     db.commit()
     log.info(
         "Launched import task %s for node image %s",
-        external_task_id,
+        running_task.external_id,
         node_image.slug,
     )
     return task
+
+
+def ingest_import_output(
+    db: Session,
+    node_image: NodeImages,
+    output: TaskOutput,
+) -> dict[str, int]:
+    """Ingest the context dumps written to an image-import task's stdout."""
+
+    body = json.loads(output.stdout)
+    if not isinstance(body, list):
+        body = [body]
+
+    combined_stats: dict[str, int] = {}
+    for dump in body:
+        stats = ingest_interchange_dump(
+            db=db,
+            dump=dump,
+            node_image=node_image,
+            enable_contexts=True,
+            preserve_curated=True,
+        )
+        for key, value in stats.items():
+            combined_stats[key] = combined_stats.get(key, 0) + value
+    return combined_stats

@@ -1,35 +1,24 @@
 """Kubernetes implementation of the task-runner service."""
 
-from typing import Any, TYPE_CHECKING
+from typing import Any
 from uuid import uuid4
 
 from kubernetes import client as k8s_client
 from kubernetes import config as k8s_config
 from traitlets import Dict, Integer, List, Unicode
 
-from beakerhub.services.task.base import BaseTaskRunnerService
-
-if TYPE_CHECKING:
-    from beakerhub.orm import NodeImages
+from beakerhub.services.task.base import (
+    BaseTaskRunnerService,
+    RunningTask,
+    TaskOutput,
+    TaskStatus,
+)
+from beakerhub.tasks.base import BaseImageTask, BaseTaskDefinition
 
 
 class KubernetesTaskRunnerService(BaseTaskRunnerService):
     """Run BeakerHub background tasks as Kubernetes Jobs."""
 
-    reporter_image = Unicode(
-        "beakerhub/task-reporter:latest",
-        config=True,
-        help="Full image reference for the task reporter container.",
-    )
-    reporter_pull_policy = Unicode(
-        "Always",
-        config=True,
-        help="Image pull policy for the task reporter container.",
-    )
-    reporter_resources = Dict(
-        config=True,
-        help="Resource requests and limits for the task reporter container.",
-    )
     node_image_resources = Dict(
         config=True,
         help="Resource requests and limits for the node-image init container.",
@@ -65,62 +54,41 @@ class KubernetesTaskRunnerService(BaseTaskRunnerService):
             k8s_config.load_kube_config()
         return k8s_client.BatchV1Api(), k8s_client.CoreV1Api()
 
-    def submit_image_import(
-        self,
-        node_image: "NodeImages",
-        callback_url: str,
-        callback_token: str,
-    ) -> str:
-        """Create a Job that extracts and reports context data from an image."""
-        batch_api, _ = self._get_clients()
-        job_name = f"node-import-{node_image.slug}-{uuid4().hex[:8]}"
-        output_volume_name = "task-output"
-        stdout_path = "/output/stdout"
-        stderr_path = "/output/stderr"
-
-        init_container = k8s_client.V1Container(
-            name="context-dump",
-            image=node_image.default_img_string,
-            command=[
-                "sh",
-                "-c",
-                f"beaker context dump > {stdout_path} 2> {stderr_path}",
-            ],
-            volume_mounts=[
-                k8s_client.V1VolumeMount(
-                    name=output_volume_name,
-                    mount_path="/output",
-                )
-            ],
-            resources=self._build_resource_requirements(self.node_image_resources),
+    def submit(self, task: BaseTaskDefinition) -> RunningTask:
+        """Submit a supported task as a Kubernetes Job."""
+        if not isinstance(task, BaseImageTask):
+            raise ValueError(
+                f"KubernetesTaskRunnerService only supports image tasks, not "
+                f"{task.task_type!r}"
+            )
+        external_id = self._submit_image_task(task)
+        return RunningTask(
+            external_id=external_id,
+            task_definition=task,
+            runner=self,
         )
-        reporter_container = k8s_client.V1Container(
-            name="reporter",
-            image=self.reporter_image,
-            image_pull_policy=self.reporter_pull_policy,
+
+    def _submit_image_task(self, task: BaseImageTask) -> str:
+        """Create a Job for a runtime-neutral image-task definition."""
+        batch_api, _ = self._get_clients()
+        task_name = task.task_type.replace("_", "-")
+        job_name = f"beaker-task-{task_name}-{uuid4().hex[:8]}"
+        container = k8s_client.V1Container(
+            name="task",
+            image=task.image,
+            command=list(task.entrypoint) or None,
+            args=list(task.command) or None,
+            working_dir=task.working_directory,
             env=[
-                k8s_client.V1EnvVar(name="CALLBACK_URL", value=callback_url),
-                k8s_client.V1EnvVar(name="CALLBACK_TOKEN", value=callback_token),
-                k8s_client.V1EnvVar(name="STDOUT_PATH", value=stdout_path),
-                k8s_client.V1EnvVar(name="STDERR_PATH", value=stderr_path),
-            ],
-            volume_mounts=[
-                k8s_client.V1VolumeMount(
-                    name=output_volume_name,
-                    mount_path="/output",
-                )
-            ],
-            resources=self._build_resource_requirements(self.reporter_resources),
+                k8s_client.V1EnvVar(name=name, value=value)
+                for name, value in task.environment.items()
+            ] or None,
+            resources=self._build_resource_requirements(
+                dict(task.resources) or self.node_image_resources
+            ),
         )
         pod_spec = k8s_client.V1PodSpec(
-            init_containers=[init_container],
-            containers=[reporter_container],
-            volumes=[
-                k8s_client.V1Volume(
-                    name=output_volume_name,
-                    empty_dir=k8s_client.V1EmptyDirVolumeSource(),
-                )
-            ],
+            containers=[container],
             restart_policy="Never",
             node_selector=self.node_selector or None,
             tolerations=(
@@ -137,9 +105,8 @@ class KubernetesTaskRunnerService(BaseTaskRunnerService):
                 namespace=self.namespace,
                 labels={
                     "app.kubernetes.io/name": "beakerhub",
-                    "app.kubernetes.io/component": "node-image-task",
-                    "beakerhub/task-type": "context-import",
-                    "beakerhub/node-image": node_image.slug,
+                    "app.kubernetes.io/component": "task",
+                    "beakerhub/task-type": task.task_type,
                 },
             ),
             spec=k8s_client.V1JobSpec(
@@ -147,7 +114,7 @@ class KubernetesTaskRunnerService(BaseTaskRunnerService):
                     metadata=k8s_client.V1ObjectMeta(
                         labels={
                             "app.kubernetes.io/name": "beakerhub",
-                            "app.kubernetes.io/component": "node-image-task",
+                            "app.kubernetes.io/component": "task",
                         }
                     ),
                     spec=pod_spec,
@@ -160,11 +127,11 @@ class KubernetesTaskRunnerService(BaseTaskRunnerService):
 
         batch_api.create_namespaced_job(namespace=self.namespace, body=job)
         self.log.info(
-            "Created import job %s for node image %s", job_name, node_image.slug
+            "Created task job %s for task type %s", job_name, task.task_type
         )
         return job_name
 
-    def get_status(self, task_id: str) -> dict:
+    def get_status(self, task_id: str) -> TaskStatus:
         """Query the status of a Kubernetes Job."""
         batch_api, core_api = self._get_clients()
         try:
@@ -174,23 +141,36 @@ class KubernetesTaskRunnerService(BaseTaskRunnerService):
             )
         except k8s_client.ApiException as error:
             if error.status == 404:
-                return {
-                    "status": "failed",
-                    "message": f"Job {task_id} not found",
-                }
+                return TaskStatus("failed", f"Job {task_id} not found")
             raise
 
         status = job.status
         if status.succeeded and status.succeeded > 0:
-            return {"status": "completed", "message": "Job completed successfully"}
+            return TaskStatus("completed", "Job completed successfully")
         if status.failed and status.failed > 0:
-            return {
-                "status": "failed",
-                "message": self._get_failure_message(core_api, task_id),
-            }
+            return TaskStatus("failed", self._get_failure_message(core_api, task_id))
         if status.active and status.active > 0:
-            return {"status": "running", "message": "Job is running"}
-        return {"status": "pending", "message": "Job is pending"}
+            return TaskStatus("running", "Job is running")
+        return TaskStatus("pending", "Job is pending")
+
+    def get_output(self, task_id: str) -> TaskOutput | None:
+        """Return the task container log after its Job reaches a terminal state."""
+        _, core_api = self._get_clients()
+        pods = core_api.list_namespaced_pod(
+            namespace=self.namespace,
+            label_selector=f"job-name={task_id}",
+        )
+        if not pods.items:
+            return None
+        response = core_api.read_namespaced_pod_log(
+            name=pods.items[0].metadata.name,
+            namespace=self.namespace,
+            container="task",
+            _preload_content=False,
+        )
+        logs = response.data.decode("utf-8")
+        # Kubernetes exposes a combined container log stream through this API.
+        return TaskOutput(stdout=logs or "", stderr="")
 
     def _get_failure_message(
         self,

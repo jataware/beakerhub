@@ -192,9 +192,6 @@ c.Authenticator.admin_users = {{ .Values.auth.adminUsers | toJson }}
 #------------------------------------------------------------------------------
 
 c.KubernetesTaskRunnerService.namespace = {{ .Values.namespace | quote }}
-c.KubernetesTaskRunnerService.reporter_image = {{ printf "%s%s:%s" (default "" .Values.defaultRegistry) .Values.tasks.reporter.image.repository .Values.tasks.reporter.image.tag | quote }}
-c.KubernetesTaskRunnerService.reporter_pull_policy = {{ .Values.tasks.reporter.image.pullPolicy | quote }}
-c.KubernetesTaskRunnerService.reporter_resources = {{ .Values.tasks.reporter.resources | toJson }}
 c.KubernetesTaskRunnerService.node_image_resources = {{ .Values.tasks.nodeImageDefaults.resources | toJson }}
 c.KubernetesTaskRunnerService.backoff_limit = {{ .Values.tasks.backoffLimit }}
 c.KubernetesTaskRunnerService.active_deadline_seconds = {{ .Values.tasks.activeDeadlineSeconds }}

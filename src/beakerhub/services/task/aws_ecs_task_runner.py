@@ -1,25 +1,20 @@
 """AWS ECS implementation skeleton for the task-runner service."""
 
-from typing import TYPE_CHECKING
-
-from beakerhub.services.task.base import BaseTaskRunnerService
-
-if TYPE_CHECKING:
-    from beakerhub.orm import NodeImages
+from beakerhub.services.task.base import (
+    BaseTaskRunnerService,
+    RunningTask,
+    TaskStatus,
+)
+from beakerhub.tasks.base import BaseTaskDefinition
 
 
 class AwsEcsTaskRunnerService(BaseTaskRunnerService):
     """Run BeakerHub background tasks as AWS ECS tasks."""
 
-    def submit_image_import(
-        self,
-        node_image: "NodeImages",
-        callback_url: str,
-        callback_token: str,
-    ) -> str:
+    def submit(self, task: BaseTaskDefinition) -> RunningTask:
         raise NotImplementedError("AWS ECS task submission is not implemented")
 
-    def get_status(self, task_id: str) -> dict:
+    def get_status(self, task_id: str) -> TaskStatus:
         raise NotImplementedError("AWS ECS task status polling is not implemented")
 
     def delete(self, task_id: str) -> None:

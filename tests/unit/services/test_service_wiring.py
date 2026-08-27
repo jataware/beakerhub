@@ -7,7 +7,7 @@ from traitlets.config import Config
 from beakerhub.app import BeakerHub
 from beakerhub.services.dashboard.base import BaseDashboardService
 from beakerhub.services.task.base import BaseTaskRunnerService
-from beakerhub.tasks.image_import.task import launch_import_task
+from beakerhub.tasks.image_import.task import ImageImportTask, launch_import_task
 
 
 class DummyTaskRunnerService(BaseTaskRunnerService):
@@ -42,11 +42,13 @@ def test_task_runner_receives_config_loaded_after_its_creation():
     app = BeakerHub()
     runner = app.task_runner
     config = Config()
-    config.KubernetesTaskRunnerService.reporter_image = "registry.example/reporter:v1"
+    config.KubernetesTaskRunnerService.node_image_resources = {
+        "limits": {"cpu": "1"}
+    }
 
     app.update_config(config)
 
-    assert runner.reporter_image == "registry.example/reporter:v1"
+    assert runner.node_image_resources == {"limits": {"cpu": "1"}}
 
 
 def test_image_import_delegates_submission_to_task_runner():
@@ -54,11 +56,17 @@ def test_image_import_delegates_submission_to_task_runner():
     db.query.return_value.filter.return_value.first.return_value = None
     node_image = MagicMock(id=12, slug="example")
     app = MagicMock(hub_connect_url="http://hub.internal")
-    app.task_runner.submit_image_import.return_value = "external-task-id"
+    app.task_runner.submit.return_value = MagicMock(external_id="external-task-id")
 
     task = launch_import_task(db, app, node_image)
 
-    app.task_runner.submit_image_import.assert_called_once()
+    app.task_runner.submit.assert_called_once()
+    submitted_task = app.task_runner.submit.call_args.args[0]
+    assert isinstance(submitted_task, ImageImportTask)
+    assert submitted_task.node_image is node_image
+    assert submitted_task.image == node_image.default_img_string
+    assert submitted_task.entrypoint == ("sh", "-c")
+    assert submitted_task.command == ("beaker context dump",)
     assert task.job_name == "external-task-id"
     assert task.status == "running"
     assert db.commit.call_count == 2
