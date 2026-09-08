@@ -1,57 +1,78 @@
-"""Tests for task-runner lifecycle value objects."""
-
-from dataclasses import dataclass
+"""Tests for task-runner delegation to runtime processes."""
 
 import pytest
 
-from beakerhub.services.task.base import (
-    BaseTaskRunnerService,
-    RunningTask,
-    TaskOutput,
-    TaskStatus,
+from beakerhub.runtimes.base import (
+    BaseDefinition,
+    BaseProcess,
+    BaseRuntime,
+    ProcessOutput,
+    ProcessStatus,
 )
-from beakerhub.tasks.base import BaseTaskDefinition
+from beakerhub.services.task.base import BaseTaskRunnerService, TaskOutput, TaskStatus
 
 
-@dataclass(frozen=True)
-class ExampleTask(BaseTaskDefinition):
-    @property
-    def task_type(self) -> str:
-        return "example"
+class CompleteProcess(BaseProcess):
+    def describe(self) -> ProcessStatus:
+        return ProcessStatus("completed")
+
+    def collect_output(self) -> ProcessOutput:
+        return ProcessOutput("output", "")
+
+    def stop(self) -> None:
+        return None
 
 
-class CompleteTaskRunner(BaseTaskRunnerService):
-    def get_status(self, external_id: str) -> TaskStatus:
-        return TaskStatus("completed")
-
-    def get_output(self, external_id: str) -> TaskOutput:
-        return TaskOutput("output", "")
+class PendingProcess(CompleteProcess):
+    def describe(self) -> ProcessStatus:
+        return ProcessStatus("running")
 
 
-def test_running_task_uses_its_external_id_for_runner_operations():
-    runner = CompleteTaskRunner()
-    task = RunningTask("runtime-123", ExampleTask(), runner)
+class ProcessTaskRunner(BaseTaskRunnerService):
+    def __init__(self, process: BaseProcess, **kwargs):
+        self.process = process
+        super().__init__(**kwargs)
 
-    assert task.status == TaskStatus("completed")
-    assert task.done is True
-    assert task.output == TaskOutput("output", "")
+    def get_process(self, external_id: str) -> BaseProcess:
+        assert external_id == self.process.external_id
+        return self.process
+
+
+def complete_process() -> CompleteProcess:
+    return CompleteProcess(
+        BaseDefinition(),
+        runtime=BaseRuntime(),
+        external_id="runtime-123",
+    )
+
+
+def test_task_status_and_output_are_runtime_contract_aliases():
+    assert TaskStatus is ProcessStatus
+    assert TaskOutput is ProcessOutput
+
+
+def test_task_runner_delegates_persisted_identifier_to_process():
+    process = complete_process()
+    runner = ProcessTaskRunner(process)
+
+    assert runner.get_status("runtime-123") == ProcessStatus("completed")
+    assert runner.get_output("runtime-123") == ProcessOutput("output", "")
 
 
 @pytest.mark.asyncio
-async def test_running_task_returns_terminal_status():
-    runner = CompleteTaskRunner()
-    task = RunningTask("runtime-123", ExampleTask(), runner)
+async def test_process_returns_terminal_status():
+    process = complete_process()
 
-    assert await task.await_completion() == TaskStatus("completed")
+    assert await process.await_completion() == ProcessStatus("completed")
 
 
 @pytest.mark.asyncio
-async def test_running_task_raises_on_timeout():
-    class PendingTaskRunner(CompleteTaskRunner):
-        def get_status(self, external_id: str) -> TaskStatus:
-            return TaskStatus("running")
-
-    task = RunningTask("runtime-123", ExampleTask(), PendingTaskRunner())
+async def test_process_raises_on_timeout():
+    process = PendingProcess(
+        BaseDefinition(),
+        runtime=BaseRuntime(),
+        external_id="runtime-123",
+    )
 
     with pytest.raises(TimeoutError, match="runtime-123"):
-        await task.await_completion(timeout=0)
+        await process.await_completion(timeout=0)

@@ -13,6 +13,8 @@ from beakerhub.auth.cognito import  CognitoBotoAuthenticator
 from beakerhub.handlers import get_override_handlers, HierarchicalStaticHandler, VueSPAHandler
 from beakerhub.api_handlers import handlers as api_handlers
 from beakerhub.admin_handlers import admin_handlers
+from beakerhub.runtimes.base import BaseRuntime, BaseRuntimeBundle
+from beakerhub.runtimes.kubernetes import KubernetesRuntime
 from beakerhub.services.dashboard.base import BaseDashboardService
 from beakerhub.services.dashboard.aws_ecs_dashboard import AwsEcsDashboardService
 from beakerhub.services.dashboard.handlers import handlers as dashboard_handlers
@@ -37,8 +39,28 @@ class BeakerHub(JupyterHub):
     description = "Beakerhub version of: \n" + str(JupyterHub.description)
     example = "Beakerhub version of: \n" + str(JupyterHub.examples)
 
+    runtime_bundle_class = Type(
+        allow_none=True,
+        klass=BaseRuntimeBundle,
+        config=True,
+        help="Configures a default suite of runtime based configuration options."
+    )
+    runtime_bundle = Instance(
+        klass=BaseRuntimeBundle,
+        allow_none=True,
+    )
+
+    runtime_class = Type(
+        klass=BaseRuntime,
+        config=True,
+        help="Configures a default suite of runtime based configuration options."
+    )
+    runtime = Instance(
+        klass=BaseRuntime,
+        allow_none=True,
+    )
+
     task_runner_class = Type(
-        KubernetesTaskRunnerService,
         klass=BaseTaskRunnerService,
         config=True,
         help="Task-runner service used for background workloads.",
@@ -47,8 +69,8 @@ class BeakerHub(JupyterHub):
         BaseTaskRunnerService,
         allow_none=False,
     )
+
     dashboard_service_class = Type(
-        KubernetesDashboardService,
         klass=BaseDashboardService,
         config=True,
         help="Service used to collect runtime dashboard data and session logs.",
@@ -110,14 +132,48 @@ class BeakerHub(JupyterHub):
     def _default_authenticator_class(self):
         return CognitoBotoAuthenticator
 
+    @default("runtime_bundle")
+    def _default_runtime_bundle(self):
+        if self.runtime_bundle_class is not BaseRuntimeBundle:
+            return self.runtime_bundle_class(parent=self)
+        else:
+            return None
+
+    @default("runtime_class")
+    def _default_runtime_class(self):
+        if isinstance(self.runtime_bundle, BaseRuntimeBundle):
+            return self.runtime_bundle.runtime_class
+        else:
+            return KubernetesRuntime
+
+    @default("runtime")
+    def _default_runtime(self):
+        return self.runtime_class(parent=self)
+
     @default("spawner_class")
     def _default_spawner_class(self):
-        from beakerhub.services.spawner.kubernetes_spawner import BeakerKubeSpawner
-        return BeakerKubeSpawner
+        if isinstance(self.runtime_bundle, BaseRuntimeBundle):
+            return self.runtime_bundle.default_spawner_class
+        else:
+            from beakerhub.services.spawner.kubernetes_spawner import BeakerKubeSpawner
+            return BeakerKubeSpawner
+
+    @default("task_runner_class")
+    def _default_task_runner_class(self):
+        if isinstance(self.runtime_bundle, BaseRuntimeBundle):
+            return self.runtime_bundle.default_task_runner_class
+        else:
+            return KubernetesTaskRunnerService
 
     @default("task_runner")
     def _default_task_runner(self):
         return self.task_runner_class(parent=self)
+
+    @default("dashboard_service_class")
+    def _default_dashboard_service_class(self):
+        if isinstance(self.runtime_bundle, BaseRuntimeBundle):
+            return self.runtime_bundle.default_dashboard_class
+        return KubernetesDashboardService
 
     @default("dashboard_service")
     def _default_dashboard_service(self):
@@ -132,6 +188,10 @@ class BeakerHub(JupyterHub):
         otherwise retain its trait defaults.
         """
         super().update_config(config)
+        if  self._trait_values.get("runtime_bundle", None):
+            self.runtime_bundle.update_config(config)
+        if "runtime" in self._trait_values:
+            self.runtime.update_config(config)
         if "task_runner" in self._trait_values:
             self.task_runner.update_config(config)
         if "dashboard_service" in self._trait_values:

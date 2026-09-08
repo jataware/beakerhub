@@ -5,6 +5,7 @@ from typing import Any
 
 from traitlets import Unicode
 
+from beakerhub.runtimes.kubernetes import KubernetesRuntime
 from beakerhub.services.dashboard.base import (
     BaseDashboardService,
     DashboardServiceError,
@@ -22,20 +23,19 @@ class KubernetesDashboardService(BaseDashboardService):
         help="Kubernetes namespace inspected by the dashboard service.",
     )
 
+    def _runtime(self) -> KubernetesRuntime:
+        parent_runtime = getattr(self.parent, "runtime", None)
+        if isinstance(parent_runtime, KubernetesRuntime):
+            return parent_runtime
+        return KubernetesRuntime(namespace=self.namespace)
+
     def get_dashboard(self) -> dict[str, Any]:
-        from kubernetes import client as k8s_client
         from kubernetes import config as k8s_config
 
         try:
-            k8s_config.load_incluster_config()
+            batch_api, core_api = self._runtime().get_clients()
         except k8s_config.ConfigException:
-            try:
-                k8s_config.load_kube_config()
-            except k8s_config.ConfigException:
-                return {"available": False, "error": "No K8s configuration found"}
-
-        core_api = k8s_client.CoreV1Api()
-        batch_api = k8s_client.BatchV1Api()
+            return {"available": False, "error": "No K8s configuration found"}
 
         namespace = self.namespace
 
@@ -54,19 +54,84 @@ class KubernetesDashboardService(BaseDashboardService):
         # Cluster nodes (cluster-scoped — requires ClusterRole)
         nodes_result = self._get_node_info(core_api)
 
-        # Helm releases (stored as secrets with owner=helm label)
-        helm_result = self._get_helm_releases(core_api, namespace)
-
+        pod_phases = pods_result.get("by_phase", {})
         return {
             "available": True,
-            "namespace": namespace,
-            "pods": pods_result,
-            "pvcs": pvcs_result,
-            "jobs": jobs_result,
-            "events": events_result,
-            "nodes": nodes_result,
-            "helm_releases": helm_result,
+            "runtime": {"provider": "Kubernetes", "scope": namespace},
+            "summary": [
+                {
+                    "label": "Workloads",
+                    "value": pods_result.get("total", 0),
+                    "detail": f"{pod_phases.get('Running', 0)} running, "
+                    f"{pod_phases.get('Pending', 0)} pending",
+                },
+                {
+                    "label": "Tasks",
+                    "value": jobs_result.get("total", 0),
+                    "detail": f"{jobs_result.get('active', 0)} active, "
+                    f"{jobs_result.get('failed', 0)} failed",
+                    "severity": "danger" if jobs_result.get("failed", 0) else None,
+                },
+                {
+                    "label": "Storage volumes",
+                    "value": len(pvcs_result),
+                    "detail": f"{sum(1 for pvc in pvcs_result if pvc.get('phase') == 'Bound')} ready",
+                },
+            ],
+            "workloads": [
+                {
+                    "name": name,
+                    "kind": "Workload",
+                    "status": self._component_status(info.get("phases", {})),
+                    "detail": f"{info.get('count', 0)} instances",
+                }
+                for name, info in pods_result.get("by_component", {}).items()
+            ],
+            "resources": [
+                {
+                    "name": node.get("name", "Unknown"),
+                    "status": "ready" if node.get("ready") else "unavailable",
+                    "details": [
+                        {"label": "Instance", "value": node.get("instance_type") or "—"},
+                        {"label": "CPU", "value": f"{node.get('allocated', {}).get('cpu', '0')} / {node.get('allocatable', {}).get('cpu', '?')}"},
+                        {"label": "Memory", "value": f"{node.get('allocated', {}).get('memory', '0')} / {node.get('allocatable', {}).get('memory', '?')}"},
+                    ],
+                }
+                for node in nodes_result
+                if not node.get("error")
+            ] + [
+                {
+                    "name": pvc.get("name", "Unknown"),
+                    "status": (pvc.get("phase") or "unknown").lower(),
+                    "details": [
+                        {"label": "Storage", "value": pvc.get("capacity") or "Unknown"},
+                        {"label": "Class", "value": pvc.get("storage_class") or "Default"},
+                    ],
+                }
+                for pvc in pvcs_result
+                if not pvc.get("error")
+            ],
+            "alerts": [
+                {
+                    "reason": event.get("reason", "Warning"),
+                    "message": event.get("message", ""),
+                    "object": event.get("involved_object"),
+                    "timestamp": event.get("last_timestamp"),
+                }
+                for event in events_result
+                if not event.get("error")
+            ],
         }
+
+    @staticmethod
+    def _component_status(phases: dict[str, int]) -> str:
+        if phases.get("Failed"):
+            return "failed"
+        if phases.get("Pending"):
+            return "pending"
+        if phases.get("Running"):
+            return "running"
+        return "unknown"
 
     def _get_pod_info(self, core_api, namespace: str) -> dict[str, Any]:
         try:
@@ -389,17 +454,12 @@ class KubernetesDashboardService(BaseDashboardService):
         from kubernetes import config as k8s_config
 
         try:
-            k8s_config.load_incluster_config()
+            _, core_api = self._runtime().get_clients()
         except k8s_config.ConfigException:
-            try:
-                k8s_config.load_kube_config()
-            except k8s_config.ConfigException:
-                raise DashboardServiceError(
-                    503,
-                    "No Kubernetes configuration found",
-                )
-
-        core_api = k8s_client.CoreV1Api()
+            raise DashboardServiceError(
+                503,
+                "No Kubernetes configuration found",
+            )
 
         namespace = self.namespace
 
@@ -436,6 +496,7 @@ class KubernetesDashboardService(BaseDashboardService):
         truncated = len(log_lines) >= tail_lines
 
         return {
+            "runtime_name": pod_name,
             "pod_name": pod_name,
             "container": container,
             "logs": logs or "",

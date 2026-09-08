@@ -18,7 +18,12 @@ class BaseDashboardService(LoggingConfigurable):
     """Provide runtime inventory and session logs to dashboard handlers."""
 
     def get_dashboard(self) -> dict[str, Any]:
-        """Return provider-specific dashboard data."""
+        """Return normalized runtime inventory for the admin dashboard.
+
+        Implementations return ``available`` and, when available, ``runtime``,
+        ``summary``, ``workloads``, ``resources``, and ``alerts``. The values
+        describe container-runtime concepts rather than provider API objects.
+        """
         raise NotImplementedError
 
     def get_session_logs(

@@ -4,6 +4,7 @@ from uuid import uuid4
 from jupyterhub.spawner import Spawner
 from traitlets import Dict, Unicode, default, validate
 
+from beakerhub import orm
 from beakerhub.auth.user import BeakerhubUser
 from beakerhub.services.secrets import VAULT_ENV_VAR_LIST_KEY
 
@@ -80,7 +81,6 @@ class BeakerSpawner(Spawner):
 
         return env
 
-
     def start(self):
         raise NotImplementedError()
 
@@ -90,6 +90,81 @@ class BeakerSpawner(Spawner):
     def poll(self):
         raise NotImplementedError()
 
+    def apply_user_options(self, _spawner, user_options: dict):
+        node_record: orm.NodeImages | None = None
+        context_slug: str | None = None
+
+        if (node_slug := user_options.get("nodeSlug", None)):
+            node_record = self.db.query(orm.NodeImages).filter(orm.NodeImages.slug == node_slug).first()
+
+        if (context := user_options.get("contextSlug", None)):
+            if ':' in context:
+                context = context.split(":")[-1]
+            context_slug = context
+            self.beaker_context = context
+
+        if (context_config := user_options.get("contextOptions", None)):
+            self.context_config = context_config
+
+        # Inject secrets from the vault: globals first, then node-specific overrides
+        # Build the set of secret IDs explicitly disabled for this context
+        disabled_secret_ids: set[int] = set()
+        if context_slug:
+            context_record = (
+                self.db.query(orm.Context)
+                .filter(orm.Context.slug == context_slug)
+                .first()
+            )
+            if context_record:
+                disabled_rows = self.db.execute(
+                    orm.beaker_context_secrets.select().where(
+                        orm.beaker_context_secrets.c.context_id == context_record.id,
+                        orm.beaker_context_secrets.c.enabled == False,
+                    )
+                ).fetchall()
+                disabled_secret_ids = {row.node_secret_id for row in disabled_rows}
+
+        secrets_env: dict[str, str] = {}
+        # Policy overrides travel separately from the values: the value goes into the pod
+        # environment, while the policies tell the node what it may do with that value.
+        # Both are keyed by env_var, so a node-specific secret overrides a global one in
+        # exactly the same way for each.
+        secrets_policies: dict[str, dict[str, str]] = {}
+
+        def collect(secret: orm.NodeSecret) -> None:
+            if secret.id in disabled_secret_ids:
+                return
+            secrets_env[secret.env_var] = secret.value
+            # An empty dict means "every axis at its default", which the node already
+            # assumes, so there is nothing to send.
+            if secret.policies:
+                secrets_policies[secret.env_var] = secret.policies
+            else:
+                # A node-specific secret with no overrides must not inherit the policies
+                # of the global secret it shadows.
+                secrets_policies.pop(secret.env_var, None)
+
+        # Global secrets (node_image_id IS NULL)
+        global_secrets = (
+            self.db.query(orm.NodeSecret)
+            .filter(orm.NodeSecret.node_image_id.is_(None))
+            .all()
+        )
+        for secret in global_secrets:
+            collect(secret)
+
+        # Node-specific secrets (override globals)
+        if node_record:
+            node_secrets = (
+                self.db.query(orm.NodeSecret)
+                .filter(orm.NodeSecret.node_image_id == node_record.id)
+                .all()
+            )
+            for secret in node_secrets:
+                collect(secret)
+
+        self.node_env = secrets_env or {}
+        self.node_policy_overrides = secrets_policies or {}
 
 class BeakerhubImageSpawner(BeakerSpawner):
 
@@ -146,3 +221,15 @@ class BeakerhubImageSpawner(BeakerSpawner):
             return f"{self.default_registry}/{value}"
         else:
             return value
+
+    def apply_user_options(self, _spawner, user_options: dict):
+        node_record: orm.NodeImages | None = None
+
+        super().apply_user_options(_spawner, user_options)
+
+        if (node_slug := user_options.get("nodeSlug", None)):
+            node_record = self.db.query(orm.NodeImages).filter(orm.NodeImages.slug == node_slug).first()
+            if node_record:
+                tag = ("debug" if self.debug else node_record.default_tag) or self.default_tag
+                image_spec = f"{node_record.default_registry}/{node_record.repository}:{tag}"
+                self.image = image_spec

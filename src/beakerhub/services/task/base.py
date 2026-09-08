@@ -1,95 +1,52 @@
-"""Base contracts for background task-runner services."""
+"""Task-runner adapters for persisted BeakerHub background tasks."""
 
-import asyncio
-from dataclasses import dataclass
-from time import monotonic
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, TypeAlias
 
+from beakerhub.runtimes.base import (
+    BaseProcess,
+    ProcessOutput,
+    ProcessState,
+    ProcessStatus,
+)
 from traitlets.config import LoggingConfigurable
 
 if TYPE_CHECKING:
     from beakerhub.tasks.base import BaseTaskDefinition
 
 
-TaskState = Literal["pending", "running", "completed", "failed"]
-
-
-@dataclass(frozen=True)
-class TaskStatus:
-    """The runner's current view of a submitted task."""
-
-    state: TaskState
-    message: str | None = None
-
-    @property
-    def done(self) -> bool:
-        """Return true when the task has reached a terminal state."""
-        return self.state in {"completed", "failed"}
-
-
-@dataclass(frozen=True)
-class TaskOutput:
-    """Captured standard streams for a completed task."""
-
-    stdout: str
-    stderr: str
-
-
-@dataclass(frozen=True)
-class RunningTask:
-    """An in-memory handle for a task submitted to a runner."""
-
-    external_id: str
-    task_definition: "BaseTaskDefinition"
-    runner: "BaseTaskRunnerService"
-
-    @property
-    def status(self) -> TaskStatus:
-        """Return the current status from the runner."""
-        return self.runner.get_status(self.external_id)
-
-    @property
-    def done(self) -> bool:
-        """Return true when the runner reports a terminal state."""
-        return self.status.done
-
-    @property
-    def output(self) -> TaskOutput | None:
-        """Return captured output after the runner reports task completion."""
-        return self.runner.get_output(self.external_id)
-
-    async def await_completion(self, timeout: float | None = 600) -> TaskStatus:
-        """Wait for terminal status, or raise ``TimeoutError``."""
-        started_at = monotonic()
-        while True:
-            status = self.status
-            if status.done:
-                return status
-            if timeout is not None and monotonic() - started_at >= timeout:
-                raise TimeoutError(
-                    f"Task {self.external_id!r} did not complete within {timeout} seconds"
-                )
-            await asyncio.sleep(0.2)
+# Keep task-service imports stable while using the runtime lifecycle contract.
+TaskState: TypeAlias = ProcessState
+TaskStatus = ProcessStatus
+TaskOutput = ProcessOutput
 
 
 class BaseTaskRunnerService(LoggingConfigurable):
-    """Submit and manage background workloads for BeakerHub tasks."""
+    """Adapt logical BeakerHub tasks to provider runtime processes.
 
-    def submit(self, task: "BaseTaskDefinition") -> RunningTask:
-        """Submit a task and return its in-memory runtime handle."""
+    Persisted tasks retain only an external provider identifier. Provider-specific
+    subclasses reconstruct a process handle from that identifier when the task
+    service later polls status, reads output, or requests cleanup.
+    """
+
+    def submit(self, task: "BaseTaskDefinition") -> BaseProcess:
+        """Launch a runtime process for a logical task."""
         raise NotImplementedError
 
-    def get_status(self, external_id: str) -> TaskStatus:
-        """Return the current state and diagnostics for a submitted task."""
+    def get_process(self, external_id: str) -> BaseProcess:
+        """Reconstruct a process handle for a persisted external identifier."""
         raise NotImplementedError
 
-    def get_output(self, external_id: str) -> TaskOutput | None:
-        """Return output for a terminal task, if the backend retains it."""
-        raise NotImplementedError
+    def get_status(self, external_id: str) -> ProcessStatus:
+        """Return the current status of a persisted runtime process."""
+        return self.get_process(external_id).status
+
+    def get_output(self, external_id: str) -> ProcessOutput | None:
+        """Return retained output for a persisted runtime process."""
+        return self.get_process(external_id).collect_output()
 
     def delete(self, external_id: str) -> None:
-        """Remove a known submitted workload during normal task completion."""
-        raise NotImplementedError
+        """Request cleanup of a persisted runtime process."""
+        self.get_process(external_id).stop()
 
     def reap_stale_tasks(self) -> None:
         """Find and clean backend workloads orphaned from normal completion."""

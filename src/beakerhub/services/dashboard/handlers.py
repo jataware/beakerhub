@@ -147,11 +147,46 @@ class AdminDashboardClusterHandler(APIHandler):
     async def get(self):
         try:
             result = self.settings["app"].dashboard_service.get_dashboard()
+            self._add_task_sessions(result)
         except Exception as error:
             log.warning("Failed to fetch dashboard data: %s", error)
             result = {"available": False, "error": str(error)}
         self.set_header("Content-Type", "application/json")
         self.write(json.dumps(result))
+
+
+    def _add_task_sessions(self, dashboard: dict) -> None:
+        """Attach JupyterHub session ownership to task workload rows.
+
+        ECS session spawners persist their task ARN in state. Matching that ARN
+        avoids one ECS tag request per task and also identifies the session owner.
+        """
+        task_sessions: dict[str, list[dict[str, str]]] = {}
+        for spawner in (
+            self.db.query(Spawner)
+            .join(User)
+            .filter(Spawner.server_id.isnot(None))
+            .all()
+        ):
+            state = spawner.state if isinstance(spawner.state, dict) else {}
+            task_arn = state.get("task_arn")
+            if not task_arn:
+                continue
+            task_id = task_arn.rsplit("/", maxsplit=1)[-1]
+            task_sessions.setdefault(task_id, []).append(
+                {"user": spawner.user.name, "name": spawner.name}
+            )
+
+        def add_sessions(workload: dict) -> None:
+            if workload.get("kind") == "Task":
+                sessions = task_sessions.get(workload.get("name", ""))
+                if sessions:
+                    workload["sessions"] = sessions
+            for child in workload.get("children", []):
+                add_sessions(child)
+
+        for workload in dashboard.get("workloads", []):
+            add_sessions(workload)
 
 
 class AdminSessionLogsHandler(APIHandler):
@@ -169,9 +204,19 @@ class AdminSessionLogsHandler(APIHandler):
             tail_lines = 5000
         tail_lines = max(1, min(tail_lines, 100000))
 
+        runtime_id = session_id
+        spawner = (
+            self.db.query(Spawner)
+            .join(User)
+            .filter(User.name == owner, Spawner.name == session_id)
+            .first()
+        )
+        if spawner and isinstance(spawner.state, dict):
+            runtime_id = spawner.state.get("task_arn", session_id)
+
         try:
             result = self.settings["app"].dashboard_service.get_session_logs(
-                session_id,
+                runtime_id,
                 container,
                 tail_lines,
             )
@@ -193,6 +238,11 @@ class AdminSessionLogsHandler(APIHandler):
 handlers = [
     (r"/api/beakerhub/admin/dashboard/summary", AdminDashboardSummaryHandler),
     (r"/api/beakerhub/admin/dashboard/cluster", AdminDashboardClusterHandler),
+    (
+        r"/api/beakerhub/admin/dashboard/session-logs/([^/]+)/([^/]+)",
+        AdminSessionLogsHandler,
+    ),
+    # Compatibility path for existing admin clients.
     (
         r"/api/beakerhub/admin/dashboard/pod-logs/([^/]+)/([^/]+)",
         AdminSessionLogsHandler,

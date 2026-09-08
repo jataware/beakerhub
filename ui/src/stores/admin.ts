@@ -224,8 +224,8 @@ export interface DashboardSummary {
   recent_imports: DashboardImport[];
 }
 
-export interface PodLogsResponse {
-  pod_name: string;
+export interface SessionLogsResponse {
+  runtime_name: string;
   container: string;
   logs: string;
   tail_lines: number;
@@ -233,69 +233,49 @@ export interface PodLogsResponse {
   timestamp: string;
 }
 
-export interface ClusterPodComponent {
-  count: number;
-  phases: Record<string, number>;
+export interface RuntimeSummaryItem {
+  label: string;
+  value: string | number;
+  detail?: string;
+  severity?: string | null;
 }
 
-export interface ClusterPVC {
+export interface RuntimeSession {
+  user: string;
   name: string;
-  capacity: string | null;
-  phase: string;
-  storage_class: string | null;
 }
 
-export interface ClusterEvent {
-  type: string;
-  reason: string;
-  message: string;
-  involved_object: string | null;
-  last_timestamp: string | null;
-  count: number;
-}
-
-export interface ClusterNode {
+export interface RuntimeWorkload {
   name: string;
-  ready: boolean;
-  conditions: string[];
-  instance_type: string;
-  os: string;
-  arch: string;
-  kubelet_version: string | null;
-  container_runtime: string | null;
-  capacity: { cpu: string | null; memory: string | null; pods: string | null };
-  allocatable: { cpu: string | null; memory: string | null; pods: string | null };
-  allocated: { cpu: string | null; memory: string | null; pods: string | null };
-  error?: string;
+  kind: string;
+  status: string;
+  detail?: string;
+  sessions?: RuntimeSession[];
+  children?: RuntimeWorkload[];
 }
 
-export interface HelmRelease {
+export interface RuntimeResource {
   name: string;
   status: string;
-  version: number;
-  updated: string | null;
-  error?: string;
+  details: { label: string; value: string | number }[];
+}
+
+export interface RuntimeAlert {
+  reason: string;
+  message: string;
+  object?: string | null;
+  timestamp?: string | null;
 }
 
 export interface ClusterInfo {
   available: boolean;
   error?: string;
-  namespace?: string;
-  pods?: {
-    total: number;
-    by_phase: Record<string, number>;
-    by_component: Record<string, ClusterPodComponent>;
-  };
-  pvcs?: ClusterPVC[];
-  jobs?: {
-    total: number;
-    active: number;
-    succeeded: number;
-    failed: number;
-  };
-  events?: ClusterEvent[];
-  nodes?: ClusterNode[];
-  helm_releases?: HelmRelease[];
+  runtime?: { provider: string; scope: string };
+  summary?: RuntimeSummaryItem[];
+  workloads?: RuntimeWorkload[];
+  resources?: RuntimeResource[];
+  resources_empty_message?: string | null;
+  alerts?: RuntimeAlert[];
 }
 
 // ============================================
@@ -895,17 +875,17 @@ export const useAdminStore = defineStore('admin', () => {
     }
   }
 
-  async function fetchPodLogs(
+  async function fetchSessionLogs(
     username: string,
     serverName: string,
     tailLines: number = 5000
-  ): Promise<PodLogsResponse> {
+  ): Promise<SessionLogsResponse> {
     const params = new URLSearchParams({
       container: 'notebook',
       tail_lines: String(tailLines),
     });
     const response = await fetch(
-      `/api/beakerhub/admin/dashboard/pod-logs/${encodeURIComponent(username)}/${encodeURIComponent(serverName)}?${params}`
+      `/api/beakerhub/admin/dashboard/session-logs/${encodeURIComponent(username)}/${encodeURIComponent(serverName)}?${params}`
     );
     if (!response.ok) {
       const detail = await response.text();
@@ -995,6 +975,6 @@ export const useAdminStore = defineStore('admin', () => {
     // Dashboard actions
     fetchDashboardSummary,
     fetchClusterInfo,
-    fetchPodLogs,
+    fetchSessionLogs,
   };
 });

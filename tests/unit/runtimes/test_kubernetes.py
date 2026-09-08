@@ -70,7 +70,8 @@ def test_start_creates_job_and_records_the_provider_identifier(monkeypatch):
     batch_api = Mock()
     core_api = Mock()
     instance = runtime()
-    monkeypatch.setattr(instance, "get_clients", lambda: (batch_api, core_api))
+    instance.batch_api = batch_api
+    instance.core_api = core_api
 
     process = KubernetesProcess.start(
         KubernetesDefinition(image="example:latest", name_prefix="image-import"),
@@ -98,7 +99,8 @@ def test_describe_reports_job_completion(monkeypatch):
         status=SimpleNamespace(succeeded=1, failed=None, active=None)
     )
     instance = runtime()
-    monkeypatch.setattr(instance, "get_clients", lambda: (batch_api, Mock()))
+    instance.batch_api = batch_api
+    instance.core_api = Mock()
     process = KubernetesProcess(
         KubernetesDefinition(image="example:latest"),
         runtime=instance,

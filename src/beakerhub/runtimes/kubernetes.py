@@ -5,7 +5,6 @@ KubeSpawner remains responsible for JupyterHub session Pod construction and
 proxy readiness until it is explicitly adapted to this runtime layer.
 """
 
-from dataclasses import dataclass, field
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -59,14 +58,18 @@ class KubernetesRuntime(BaseRuntime):
         help="Labels applied to every runtime workload.",
     )
 
-    @staticmethod
-    def get_clients() -> tuple[k8s_client.BatchV1Api, k8s_client.CoreV1Api]:
-        """Load Kubernetes configuration and create the required API clients."""
+    batch_api: k8s_client.BatchV1Api
+    core_api: k8s_client.CoreV1Api
+
+
+    def __init__(self, **kwargs):
         try:
             k8s_config.load_incluster_config()
         except k8s_config.ConfigException:
             k8s_config.load_kube_config()
-        return k8s_client.BatchV1Api(), k8s_client.CoreV1Api()
+        self.batch_api = k8s_client.BatchV1Api()
+        self.core_api = k8s_client.CoreV1Api()
+        super().__init__(**kwargs)
 
     @staticmethod
     def build_resource_requirements(
@@ -101,56 +104,47 @@ class KubernetesRuntime(BaseRuntime):
         return None
 
 
-@dataclass(frozen=True, kw_only=True)
 class KubernetesDefinition(BaseDefinition):
     """A Kubernetes Job workload definition."""
 
-    namespace: str | None = None
-    resources: Mapping[str, Any] = field(default_factory=dict)
-    node_selector: Mapping[str, str] | None = None
-    tolerations: tuple[Mapping[str, Any], ...] | None = None
-    service_account: str | None = None
-    backoff_limit: int = 0
-    active_deadline_seconds: int | None = 300
-    ttl_seconds_after_finished: int | None = 600
-    name_prefix: str = "beaker-process"
+    runtime = Instance(KubernetesRuntime, allow_none=True)
+    namespace = Unicode(config=True)
+    resources = Dict(default_value={}, config=True)
+    node_selector = Dict(Unicode(), Unicode(), config=True)
+    tolerations = List(Dict(), config=True)
+    service_account = Unicode(config=True)
+    backoff_limit = traitlets.Int(0, config=True)
+    active_deadline_seconds = traitlets.Int(300, allow_none=True, config=True)
+    ttl_seconds_after_finished = traitlets.Int(600, allow_none=True, config=True)
+    name_prefix = Unicode("beaker-process", config=True)
+
+    @traitlets.default("namespace")
+    def _default_namespace(self) -> str:
+        return self.runtime.namespace
+
+    @traitlets.default("node_selector")
+    def _default_node_selector(self) -> dict[str, str]:
+        return dict(self.runtime.node_selector)
+
+    @traitlets.default("tolerations")
+    def _default_tolerations(self) -> list[dict[str, Any]]:
+        return list(self.runtime.tolerations)
+
+    @traitlets.default("service_account")
+    def _default_service_account(self) -> str:
+        return self.runtime.service_account
 
 
 class KubernetesProcess(BaseProcess):
     """A Kubernetes Job-backed process."""
 
+    definition: KubernetesDefinition
     runtime = Instance(KubernetesRuntime, allow_none=False)
 
     def __init__(self, definition: KubernetesDefinition, **kwargs: Any) -> None:
-        super().__init__(definition, **kwargs)
-
-    @property
-    def _definition(self) -> KubernetesDefinition:
-        if not isinstance(self.definition, KubernetesDefinition):
+        if not isinstance(definition, KubernetesDefinition):
             raise TypeError("KubernetesProcess requires a KubernetesDefinition")
-        return self.definition
-
-    @property
-    def namespace(self) -> str:
-        return self._definition.namespace or self.runtime.namespace
-
-    @property
-    def node_selector(self) -> Mapping[str, str]:
-        if self._definition.node_selector is not None:
-            return self._definition.node_selector
-        return self.runtime.node_selector
-
-    @property
-    def tolerations(self) -> tuple[Mapping[str, Any], ...] | list[dict[str, Any]]:
-        if self._definition.tolerations is not None:
-            return self._definition.tolerations
-        return self.runtime.tolerations
-
-    @property
-    def service_account(self) -> str:
-        if self._definition.service_account is not None:
-            return self._definition.service_account
-        return self.runtime.service_account
+        super().__init__(definition, **kwargs)
 
     @classmethod
     def start(
@@ -167,17 +161,19 @@ class KubernetesProcess(BaseProcess):
             )
         self = cls(definition, process_type=process_type, **kwargs)
         self.external_id = self._job_name()
-        batch_api, _ = self.runtime.get_clients()
-        batch_api.create_namespaced_job(namespace=self.namespace, body=self._job())
+        self.runtime.batch_api.create_namespaced_job(
+            namespace=self.definition.namespace,
+            body=self._job(),
+        )
         self.log.info("Created Kubernetes Job %s", self.external_id)
         return self
 
     def _job_name(self) -> str:
-        prefix = self._definition.name_prefix.rstrip("-") or "beaker-process"
+        prefix = self.definition.name_prefix.rstrip("-") or "beaker-process"
         return f"{prefix}-{uuid4().hex[:8]}"
 
     def _job(self) -> k8s_client.V1Job:
-        definition = self._definition
+        definition = self.definition
         labels = {
             **self.runtime.base_labels,
             **definition.labels,
@@ -201,20 +197,20 @@ class KubernetesProcess(BaseProcess):
         pod_spec = k8s_client.V1PodSpec(
             containers=[container],
             restart_policy="Never",
-            node_selector=dict(self.node_selector) or None,
+            node_selector=dict(definition.node_selector) or None,
             tolerations=(
-                [k8s_client.V1Toleration(**item) for item in self.tolerations]
-                if self.tolerations
+                [k8s_client.V1Toleration(**item) for item in definition.tolerations]
+                if definition.tolerations
                 else None
             ),
-            service_account_name=self.service_account or None,
+            service_account_name=definition.service_account or None,
         )
         return k8s_client.V1Job(
             api_version="batch/v1",
             kind="Job",
             metadata=k8s_client.V1ObjectMeta(
                 name=self.external_id,
-                namespace=self.namespace,
+                namespace=definition.namespace,
                 labels=labels,
             ),
             spec=k8s_client.V1JobSpec(
@@ -232,11 +228,10 @@ class KubernetesProcess(BaseProcess):
         """Return normalized lifecycle status for this Kubernetes Job."""
         if not self.external_id:
             return ProcessStatus("pending", "Kubernetes Job has not been submitted")
-        batch_api, core_api = self.runtime.get_clients()
         try:
-            job = batch_api.read_namespaced_job(
+            job = self.runtime.batch_api.read_namespaced_job(
                 name=self.external_id,
-                namespace=self.namespace,
+                namespace=self.definition.namespace,
             )
         except k8s_client.ApiException as error:
             if error.status == 404:
@@ -249,7 +244,7 @@ class KubernetesProcess(BaseProcess):
         if status.failed and status.failed > 0:
             return ProcessStatus(
                 "failed",
-                self._failure_message(core_api),
+                self._failure_message(self.runtime.core_api),
             )
         if status.active and status.active > 0:
             return ProcessStatus("running", "Job is running")
@@ -258,7 +253,7 @@ class KubernetesProcess(BaseProcess):
     def _failure_message(self, core_api: k8s_client.CoreV1Api) -> str:
         try:
             pods = core_api.list_namespaced_pod(
-                namespace=self.namespace,
+                namespace=self.definition.namespace,
                 label_selector=f"job-name={self.external_id}",
             )
         except k8s_client.ApiException:
@@ -282,16 +277,15 @@ class KubernetesProcess(BaseProcess):
         """Return the combined Kubernetes container log for this Job."""
         if not self.external_id:
             return None
-        _, core_api = self.runtime.get_clients()
-        pods = core_api.list_namespaced_pod(
-            namespace=self.namespace,
+        pods = self.runtime.core_api.list_namespaced_pod(
+            namespace=self.definition.namespace,
             label_selector=f"job-name={self.external_id}",
         )
         if not pods.items:
             return None
-        response = core_api.read_namespaced_pod_log(
+        response = self.runtime.core_api.read_namespaced_pod_log(
             name=pods.items[0].metadata.name,
-            namespace=self.namespace,
+            namespace=self.definition.namespace,
             container="task",
             _preload_content=False,
         )
@@ -302,11 +296,10 @@ class KubernetesProcess(BaseProcess):
         """Delete this Kubernetes Job and its associated Pods."""
         if not self.external_id:
             return
-        batch_api, _ = self.runtime.get_clients()
         try:
-            batch_api.delete_namespaced_job(
+            self.runtime.batch_api.delete_namespaced_job(
                 name=self.external_id,
-                namespace=self.namespace,
+                namespace=self.definition.namespace,
                 body=k8s_client.V1DeleteOptions(propagation_policy="Background"),
             )
         except k8s_client.ApiException as error:
@@ -332,6 +325,23 @@ class KubernetesRuntimeBundle(BaseRuntimeBundle):
         default_value=KubernetesDefinition,
         config=True,
     )
+
+    default_dashboard_class = traitlets.Type(
+        klass="beakerhub.services.dashboard.kubernetes_dashboard.KubernetesDashboardService",
+        default_value="beakerhub.services.dashboard.kubernetes_dashboard.KubernetesDashboardService",
+        config=True
+    )
+    default_spawner_class = traitlets.Type(
+        klass="beakerhub.services.spawner.kubernetes_spawner.BeakerKubeSpawner",
+        default_value="beakerhub.services.spawner.kubernetes_spawner.BeakerKubeSpawner",
+        config=True
+    )
+    default_task_runner_class = traitlets.Type(
+        klass="beakerhub.services.task.kubernetes_task_runner.KubernetesTaskRunnerService",
+        default_value="beakerhub.services.task.kubernetes_task_runner.KubernetesTaskRunnerService",
+        config=True
+    )
+
 
 
 # KubeSpawner owns session Pod creation, state, and proxy readiness today. A

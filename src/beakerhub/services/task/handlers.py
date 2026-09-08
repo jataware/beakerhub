@@ -10,7 +10,7 @@ from jupyterhub.scopes import needs_scope
 from tornado import web
 
 from beakerhub.orm import NodeImages, NodeImageTask
-from beakerhub.tasks.image_import.task import ingest_import_output, launch_import_task
+from beakerhub.tasks.image_import.task import ImageImportTask, launch_import_task
 
 
 log = logging.getLogger(__name__)
@@ -66,11 +66,12 @@ class NodeImageImportStatusHandler(APIHandler):
             try:
                 runner = self.settings["app"].task_runner
                 status = runner.get_status(task.job_name)
+                definition = ImageImportTask.from_node_image(node)
                 if status.state == "completed":
                     output = runner.get_output(task.job_name)
                     if output is None:
                         raise RuntimeError("Task completed but no output is available")
-                    task.result = ingest_import_output(self.db, node, output)
+                    definition.on_success(task, status, output)
                     task.status = "completed"
                     task.error = None
                     task.updated_at = datetime.now(timezone.utc)
@@ -78,11 +79,8 @@ class NodeImageImportStatusHandler(APIHandler):
                     runner.delete(task.job_name)
                 elif status.state == "failed":
                     output = runner.get_output(task.job_name)
-                    messages = [status.message]
-                    if output and output.stderr:
-                        messages.append(output.stderr)
+                    definition.on_failure(task, status, output)
                     task.status = "failed"
-                    task.error = ". ".join(message for message in messages if message)
                     task.updated_at = datetime.now(timezone.utc)
                     self.db.commit()
                     runner.delete(task.job_name)

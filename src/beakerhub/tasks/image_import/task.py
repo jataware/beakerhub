@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, object_session
 
 from beakerhub.orm import NodeImages, NodeImageTask
-from beakerhub.services.task.base import TaskOutput
+from beakerhub.services.task.base import TaskOutput, TaskStatus
 from beakerhub.tasks.base import BaseImageTask
 from beakerhub.utils import ingest_interchange_dump
 
@@ -22,13 +22,47 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True, kw_only=True)
 class ImageImportTask(BaseImageTask):
-    """Definition of a task that imports context metadata from a node image."""
+    """Definition and completion behavior for a node-image context import."""
 
     node_image: NodeImages
+
+    @classmethod
+    def from_node_image(cls, node_image: NodeImages) -> "ImageImportTask":
+        """Create the standard context-dump workload for ``node_image``."""
+        return cls(
+            image=node_image.default_img_string,
+            entrypoint=("sh", "-c"),
+            command=("beaker context dump",),
+            node_image=node_image,
+        )
 
     @property
     def task_type(self) -> str:
         return "context_import"
+
+    def on_success(
+        self,
+        task: NodeImageTask,
+        status: TaskStatus,
+        output: TaskOutput,
+    ) -> None:
+        """Ingest the context dump into the image's metadata records."""
+        db = object_session(task)
+        if db is None:
+            raise RuntimeError("Image import task is not attached to a database session")
+        task.result = ingest_import_output(db, self.node_image, output)
+
+    def on_failure(
+        self,
+        task: NodeImageTask,
+        status: TaskStatus,
+        output: TaskOutput | None,
+    ) -> None:
+        """Store normalized runtime diagnostics on the persisted task."""
+        messages = [status.message]
+        if output and output.stderr:
+            messages.append(output.stderr)
+        task.error = ". ".join(message for message in messages if message)
 
 
 def launch_import_task(
@@ -61,14 +95,7 @@ def launch_import_task(
     db.commit()
 
     try:
-        running_task = app.task_runner.submit(
-            ImageImportTask(
-                image=node_image.default_img_string,
-                entrypoint=("sh", "-c"),
-                command=("beaker context dump",),
-                node_image=node_image,
-            )
-        )
+        running_task = app.task_runner.submit(ImageImportTask.from_node_image(node_image))
     except Exception as error:
         task.status = "failed"
         task.error = f"Failed to create task: {error}"
