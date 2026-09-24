@@ -7,7 +7,7 @@ SERVICE_DEFINITION: dict = {
     "command": [
         sys.executable,
         "-m",
-        "beakerhub.services.idle_culler.idle_culler_service",
+        "beakerhub.services.periodic_tasks.idle_culler.service",
     ],
 }
 

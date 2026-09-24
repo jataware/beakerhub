@@ -26,7 +26,7 @@
       <Column field="ready" header="Status" sortable style="width: 8rem;">
         <template #body="{ data }">
           <Tag v-if="data.ready" value="Ready" severity="success" />
-          <Tag v-else-if="data.pending" :value="data.pending" severity="warn" />
+          <Tag v-else-if="data.pending" :value="pendingStatus(data.pending)" severity="warn" />
           <Tag v-else value="Stopped" severity="danger" />
         </template>
       </Column>
@@ -67,7 +67,7 @@
       No active sessions found.
     </p>
 
-    <PodLogViewer
+    <SessionLogViewer
       v-model:visible="logsDialogVisible"
       :username="logsTarget.user"
       :serverName="logsTarget.name"
@@ -84,7 +84,7 @@ import Button from 'primevue/button';
 import Tag from 'primevue/tag';
 import { useAdminStore } from '@/stores/admin';
 import { useContextStore } from '@/stores/context';
-import PodLogViewer from '@/components/admin/PodLogViewer.vue';
+import SessionLogViewer from '@/components/admin/SessionLogViewer.vue';
 
 interface ServerRow {
   user: string;
@@ -143,6 +143,10 @@ function getContextName(slug: string | undefined): string {
   if (!slug) return 'Unknown';
   const context = contextStore.contexts?.find(c => c.slug === slug);
   return context?.display_name ?? slug;
+}
+
+function pendingStatus(status: string): string {
+  return status === 'stop' ? 'Shutting Down' : status;
 }
 
 function openLogs(server: ServerRow) {

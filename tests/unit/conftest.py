@@ -3,9 +3,24 @@
 # SPDX-License-Identifier: MIT
 """Shared fixtures for unit tests."""
 
-import pytest
+from unittest.mock import Mock
+
 import boto3
+import pytest
+from kubernetes import config as k8s_config
+from kubernetes.config.config_exception import ConfigException
 from moto import mock_aws
+
+
+@pytest.fixture(autouse=True)
+def mock_kubernetes_config(monkeypatch):
+    """Prevent unit tests from requiring an in-cluster config or kubeconfig."""
+    monkeypatch.setattr(
+        k8s_config,
+        "load_incluster_config",
+        Mock(side_effect=ConfigException("Not running in a cluster")),
+    )
+    monkeypatch.setattr(k8s_config, "load_kube_config", Mock())
 
 
 @pytest.fixture

@@ -487,7 +487,7 @@ function getStatusSeverity(session: SessionListItem): "success" | "warn" | "info
 function getStatusLabel(session: SessionListItem): string {
   if (session.stopped) return 'Stopped';
   if (session.pending === 'spawn') return 'Starting...';
-  if (session.pending === 'stop') return 'Stopping...';
+  if (session.pending === 'stop') return 'Shutting Down...';
   if (session.ready) return 'Running';
   return 'Unknown';
 }

@@ -217,6 +217,27 @@ class NodeImages(Base):
         return f"{self.default_registry}/{self.repository}:{self.default_tag}"
 
 
+class BeakerTask(Base):
+    """Tracks an asynchronous BeakerHub task across runner interactions.
+
+    ``external_id`` is the runtime identifier assigned by the configured task
+    runner, such as a Kubernetes Job name or ECS task ARN. It is null before
+    submission succeeds.
+    """
+    __tablename__ = 'beaker_tasks'
+    id = Column(Integer, primary_key=True)
+
+    external_id = Column(Unicode(255), nullable=True, index=True)
+    task_type = Column(Unicode(64), nullable=False, index=True)
+    task_definition = Column(JSONDict, nullable=True)
+    status = Column(Unicode(32), nullable=False, default="pending")
+    result = Column(JSONDict, nullable=True)
+    error = Column(Unicode(4096), nullable=True)
+
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow)
+
+
 class NodeImageTask(Base):
     """
     Tracks tasks (K8s Jobs) run against node images.
@@ -237,7 +258,6 @@ class NodeImageTask(Base):
     task_type = Column(Unicode(64), nullable=False)        # "context_import", etc.
     status = Column(Unicode(32), nullable=False, default="pending")  # pending, running, completed, failed
     job_name = Column(Unicode(255), nullable=True)         # K8s Job name
-    callback_token = Column(Unicode(128), nullable=True)   # Auth token for reporter callback
     result = Column(JSONDict, nullable=True)               # Ingestion stats on success
     error = Column(Unicode(4096), nullable=True)           # Error message on failure
 

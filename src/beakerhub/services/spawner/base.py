@@ -1,22 +1,14 @@
-import json
-from typing import cast
+from typing import Any, cast
+from uuid import uuid4
 
 from jupyterhub.spawner import Spawner
-from kubespawner.spawner import KubeSpawner
-from traitlets import default, validate, Unicode, Dict, List
-from traitlets.config import Application
+from traitlets import Dict, Unicode, default, validate
 
-from beakerhub.auth.user import BeakerhubUser
-from beakerhub.spawner.base import BeakerSpawner
-from beakerhub.services.secrets import VAULT_ENV_VAR_LIST_KEY
 from beakerhub import orm
+from beakerhub.auth.user import BeakerhubUser
+from beakerhub.services.secrets import VAULT_ENV_VAR_LIST_KEY
 
-
-class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
-
-    default_registry = Unicode().tag(config=True)
-    default_image = Unicode().tag(config=True)
-    default_tag = Unicode(default_value="latest").tag(config=True)
+class BeakerSpawner(Spawner):
 
     default_beaker_context = Unicode(
         default_value="default",
@@ -37,63 +29,38 @@ class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
              "Resolved from the vault at spawn time and passed to the node as JSON."
     )
 
-    @staticmethod
-    def image_has_defined_registry(image: str) -> bool:
-        image_parts = image.split("/")
-        if len(image_parts) == 1:
-            return False
-        return "." in image_parts[0] or ":" in image_parts[0]
 
-    @validate("default_registry")
-    def _validate_default_registry(self, proposal):
-        return proposal["value"].rstrip("/")
-
-    @default("delete_stopped_pods")
-    def _default_delete_stopped_pods(self):
-        return False
-
-    @default("namespace")
-    def _default_namespace(self):
-        return "beakerhub"
-
-    @default("default_image")
-    def _default_default_image(self):
-        return f"{self.default_registry}/beakerhub/default-node:{self.default_tag}"
-
-    @validate("default_image")
-    def _validate_default_image(self, proposal):
-        value = proposal["value"]
-        if not self.image_has_defined_registry(value):
-            return f"{self.default_registry}/{value}"
-        else:
-            return value
-
-    @default("image")
-    def _default_image(self):
-        return self.default_image
-
-    @validate("image")
-    def _validate_image(self, proposal):
-        value = proposal["value"]
-        if not self.image_has_defined_registry(value):
-            return f"{self.default_registry}/{value}"
-        else:
-            return value
-
-    @default("pod_name_template")
-    def _default_pod_name_template(self):
-        return "session-{user_server}"
+    def __init__(self, **kwargs: Any) -> None:
+        domain = kwargs.pop("domain", None)
+        super().__init__(**kwargs)
+        if domain:
+            self.proxy_spec = f"{self.name}.{domain}/"
 
     @property
-    def node_type(self) -> str | None:
-        pod_name = self.image.split("/")[-1]
-        if "node" not in pod_name:
-            return None
-        return pod_name
+    def name(self) -> str:
+        name = super().name
+        return name
+
+    @name.setter
+    def name(self, value: str) -> str:
+        if self.orm_spawner and self.orm_spawner.name != value:
+            self.orm_spawner.name = value
+            self.orm_spawner.save()
+        return value
+
+    @property
+    def session_id(self) -> str:
+        if not self.name:
+            self.name = str(uuid4())
+        return self.name
 
     def get_env(self):
-        user: BeakerhubUser = cast(BeakerhubUser, self.user)
         env = super().get_env()
+        return self._extend_env(env)
+
+    def _extend_env(self, env: dict[str, str]) -> dict[str, str]:
+        """Add BeakerHub-specific values to a runtime environment."""
+        user = cast(BeakerhubUser, self.user)
         env.setdefault("JUPYTER_BASE_URL", user.server_url(server_name=self.name))
         env.setdefault("BEAKER_DEFAULT_CONTEXT", self.beaker_context or self.default_beaker_context)
         env.setdefault("BEAKERHUB_USER", user.name)
@@ -114,35 +81,42 @@ class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
 
         return env
 
-    @staticmethod
-    def apply_user_options(spawner: "BeakerKubeSpawner", user_options: dict):
+    def start(self):
+        raise NotImplementedError()
+
+    def stop(self, now=False):
+        raise NotImplementedError()
+
+    def poll(self):
+        raise NotImplementedError()
+
+    def apply_user_options(self, _spawner, user_options: dict):
         node_record: orm.NodeImages | None = None
         context_slug: str | None = None
 
         if (node_slug := user_options.get("nodeSlug", None)):
-            node_record = spawner.db.query(orm.NodeImages).filter(orm.NodeImages.slug == node_slug).first()
-            if node_record:
-                tag = ("debug" if spawner.debug else node_record.default_tag) or spawner.default_tag
-                image_spec = f"{node_record.default_registry}/{node_record.repository}:{tag}"
-                spawner.image = image_spec
+            node_record = self.db.query(orm.NodeImages).filter(orm.NodeImages.slug == node_slug).first()
 
         if (context := user_options.get("contextSlug", None)):
             if ':' in context:
                 context = context.split(":")[-1]
             context_slug = context
-            spawner.beaker_context = context
+            self.beaker_context = context
+
+        if (context_config := user_options.get("contextOptions", None)):
+            self.context_config = context_config
 
         # Inject secrets from the vault: globals first, then node-specific overrides
         # Build the set of secret IDs explicitly disabled for this context
         disabled_secret_ids: set[int] = set()
         if context_slug:
             context_record = (
-                spawner.db.query(orm.Context)
+                self.db.query(orm.Context)
                 .filter(orm.Context.slug == context_slug)
                 .first()
             )
             if context_record:
-                disabled_rows = spawner.db.execute(
+                disabled_rows = self.db.execute(
                     orm.beaker_context_secrets.select().where(
                         orm.beaker_context_secrets.c.context_id == context_record.id,
                         orm.beaker_context_secrets.c.enabled == False,
@@ -172,7 +146,7 @@ class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
 
         # Global secrets (node_image_id IS NULL)
         global_secrets = (
-            spawner.db.query(orm.NodeSecret)
+            self.db.query(orm.NodeSecret)
             .filter(orm.NodeSecret.node_image_id.is_(None))
             .all()
         )
@@ -182,26 +156,80 @@ class BeakerKubeSpawner(KubeSpawner, BeakerSpawner):
         # Node-specific secrets (override globals)
         if node_record:
             node_secrets = (
-                spawner.db.query(orm.NodeSecret)
+                self.db.query(orm.NodeSecret)
                 .filter(orm.NodeSecret.node_image_id == node_record.id)
                 .all()
             )
             for secret in node_secrets:
                 collect(secret)
 
-        spawner.node_env = secrets_env or {}
-        spawner.node_policy_overrides = secrets_policies or {}
+        self.node_env = secrets_env or {}
+        self.node_policy_overrides = secrets_policies or {}
 
-        # Keep K8s secretRef as fallback for secrets not yet migrated to the vault
-        if node_slug:
-            secret_name = f"{node_slug}-secrets"
-            env_from: list = spawner.extra_container_config.setdefault("envFrom", [])
-            env_from.append({
-                "secretRef": {
-                    "name": secret_name,
-                    "optional": True  # Don't fail if secret doesn't exist
-                }
-            })
+class BeakerhubImageSpawner(BeakerSpawner):
 
-        if (context_config := user_options.get("contextOptions", None)):
-            spawner.context_config = context_config
+    default_registry = Unicode(
+        config=True,
+    ).tag(config=True)
+    default_image = Unicode(
+        config=True,
+    ).tag(config=True)
+    default_tag = Unicode(
+        "latest",
+        config=True,
+    )
+
+    image = Unicode(
+        "beakerhub/default-node:latest",
+        config=True,
+        help="""
+        Docker image to use for spawning user's containers.
+        """,
+    )
+
+    @staticmethod
+    def image_has_defined_registry(image: str) -> bool:
+        image_parts = image.split("/")
+        if len(image_parts) == 1:
+            return False
+        return "." in image_parts[0] or ":" in image_parts[0]
+
+    @validate("default_registry")
+    def _validate_default_registry(self, proposal):
+        return proposal["value"].rstrip("/")
+
+    @default("default_image")
+    def _default_default_image(self):
+        return f"{self.default_registry}/beakerhub/default-node:{self.default_tag}"
+
+    @validate("default_image")
+    def _validate_default_image(self, proposal):
+        value = proposal["value"]
+        if not self.image_has_defined_registry(value):
+            return f"{self.default_registry}/{value}"
+        else:
+            return value
+
+    @default("image")
+    def _default_image(self):
+        return self.default_image
+
+    @validate("image")
+    def _validate_image(self, proposal):
+        value = proposal["value"]
+        if not self.image_has_defined_registry(value):
+            return f"{self.default_registry}/{value}"
+        else:
+            return value
+
+    def apply_user_options(self, _spawner, user_options: dict):
+        node_record: orm.NodeImages | None = None
+
+        super().apply_user_options(_spawner, user_options)
+
+        if (node_slug := user_options.get("nodeSlug", None)):
+            node_record = self.db.query(orm.NodeImages).filter(orm.NodeImages.slug == node_slug).first()
+            if node_record:
+                tag = ("debug" if self.debug else node_record.default_tag) or self.default_tag
+                image_spec = f"{node_record.default_registry}/{node_record.repository}:{tag}"
+                self.image = image_spec

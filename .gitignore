@@ -87,6 +87,7 @@ create.sql
 shell.nix
 **/.jekyll-cache
 **/tmp
+**/*.bak
 
 # Helm
 kubernetes/packages

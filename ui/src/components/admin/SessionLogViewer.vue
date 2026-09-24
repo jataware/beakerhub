@@ -33,8 +33,8 @@
       </div>
 
       <div class="log-footer">
-        <span v-if="podName" class="pod-name" :title="podName">
-          <i class="pi pi-box" /> {{ podName }}
+        <span v-if="runtimeName" class="runtime-name" :title="runtimeName">
+          <i class="pi pi-box" /> {{ runtimeName }}
         </span>
         <span v-if="timestamp" class="fetch-time">
           Fetched {{ formatTime(timestamp) }}
@@ -78,7 +78,7 @@ const loading = ref(false);
 const loadingMore = ref(false);
 const logs = ref<string | null>(null);
 const error = ref<string | null>(null);
-const podName = ref<string | null>(null);
+const runtimeName = ref<string | null>(null);
 const timestamp = ref<string | null>(null);
 const truncated = ref(false);
 const currentTailLines = ref(5000);
@@ -88,7 +88,7 @@ function onShow() {
   currentTailLines.value = 5000;
   logs.value = null;
   error.value = null;
-  podName.value = null;
+  runtimeName.value = null;
   timestamp.value = null;
   truncated.value = false;
   fetchLogs();
@@ -103,16 +103,15 @@ async function fetchLogs() {
   loading.value = true;
   error.value = null;
   try {
-    const result = await adminStore.fetchPodLogs(
+    const result = await adminStore.fetchSessionLogs(
       props.username,
       props.serverName,
       currentTailLines.value
     );
     logs.value = result.logs;
-    podName.value = result.pod_name;
+    runtimeName.value = result.runtime_name;
     timestamp.value = result.timestamp;
     truncated.value = result.truncated;
-    // Scroll to bottom after render
     requestAnimationFrame(() => {
       scrollToBottom();
     });
@@ -134,16 +133,15 @@ async function loadMore() {
   currentTailLines.value *= 2;
 
   try {
-    const result = await adminStore.fetchPodLogs(
+    const result = await adminStore.fetchSessionLogs(
       props.username,
       props.serverName,
       currentTailLines.value
     );
     logs.value = result.logs;
-    podName.value = result.pod_name;
+    runtimeName.value = result.runtime_name;
     timestamp.value = result.timestamp;
     truncated.value = result.truncated;
-    // Preserve scroll position relative to existing content
     requestAnimationFrame(() => {
       const newScrollHeight = container.scrollHeight;
       container.scrollTop = newScrollHeight - previousScrollHeight;
@@ -240,7 +238,7 @@ function formatTime(isoString: string): string {
   flex-shrink: 0;
 }
 
-.pod-name {
+.runtime-name {
   font-family: monospace;
   font-size: 0.8rem;
   color: var(--p-text-secondary-color);

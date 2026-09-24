@@ -117,7 +117,7 @@
           <Column field="ready" header="Status" sortable style="width: 7rem;">
             <template #body="{ data }">
               <Tag v-if="data.ready" value="Ready" severity="success" />
-              <Tag v-else-if="data.pending" :value="data.pending" severity="warn" />
+              <Tag v-else-if="data.pending" :value="pendingStatus(data.pending)" severity="warn" />
               <Tag v-else value="Stopped" severity="danger" />
             </template>
           </Column>
@@ -194,188 +194,106 @@
       </div>
     </div>
 
-    <!-- Kubernetes Cluster Info -->
+    <!-- Runtime Information -->
     <div class="panel cluster-panel" v-if="clusterInfo">
       <div class="panel-header">
-        <h2>Kubernetes Cluster</h2>
-        <span v-if="clusterInfo.namespace" class="namespace-badge">{{ clusterInfo.namespace }}</span>
+        <div>
+          <h2>Cluster Information</h2>
+          <span v-if="clusterInfo.runtime" class="runtime-detail">
+            {{ clusterInfo.runtime.provider }} &middot; {{ clusterInfo.runtime.scope }}
+          </span>
+        </div>
       </div>
 
       <div v-if="!clusterInfo.available" class="cluster-unavailable">
         <i class="pi pi-info-circle" />
-        <span>Cluster information is unavailable. {{ clusterInfo.error || 'Insufficient permissions or not running in-cluster.' }}</span>
+        <span>Runtime information is unavailable. {{ clusterInfo.error || 'The service did not return status information.' }}</span>
       </div>
 
       <template v-else>
-        <div class="cluster-grid">
-          <!-- Pod Summary -->
-          <div class="cluster-section">
-            <h3>Pods</h3>
-            <div class="cluster-stat-row">
-              <span class="stat-label">Total</span>
-              <span class="stat-value">{{ clusterInfo.pods?.total ?? 0 }}</span>
-            </div>
-            <div class="cluster-stat-row" v-for="(count, phase) in clusterInfo.pods?.by_phase" :key="phase">
-              <span class="stat-label">{{ phase }}</span>
-              <Tag :value="String(count)" :severity="phaseSeverity(String(phase))" />
-            </div>
-            <div class="component-breakdown" v-if="clusterInfo.pods?.by_component">
-              <div class="component-row" v-for="(info, name) in clusterInfo.pods.by_component" :key="name">
-                <span class="component-name">{{ name }}</span>
-                <span class="component-count">{{ info.count }}</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- PVCs -->
-          <div class="cluster-section">
-            <h3>Storage</h3>
-            <div v-for="pvc in clusterInfo.pvcs" :key="pvc.name" class="pvc-row">
-              <span class="pvc-name">{{ pvc.name }}</span>
-              <span class="pvc-detail">
-                {{ pvc.capacity || '?' }} &middot;
-                <Tag :value="pvc.phase" :severity="pvc.phase === 'Bound' ? 'success' : 'warn'" />
-              </span>
-            </div>
-            <div v-if="!clusterInfo.pvcs?.length" class="text-muted">No PVCs found.</div>
-          </div>
-
-          <!-- Jobs -->
-          <div class="cluster-section">
-            <h3>Import Jobs</h3>
-            <div class="cluster-stat-row">
-              <span class="stat-label">Total</span>
-              <span class="stat-value">{{ clusterInfo.jobs?.total ?? 0 }}</span>
-            </div>
-            <div class="cluster-stat-row">
-              <span class="stat-label">Active</span>
-              <Tag :value="String(clusterInfo.jobs?.active ?? 0)" :severity="(clusterInfo.jobs?.active ?? 0) > 0 ? 'info' : 'secondary'" />
-            </div>
-            <div class="cluster-stat-row">
-              <span class="stat-label">Succeeded</span>
-              <Tag :value="String(clusterInfo.jobs?.succeeded ?? 0)" severity="success" />
-            </div>
-            <div class="cluster-stat-row">
-              <span class="stat-label">Failed</span>
-              <Tag :value="String(clusterInfo.jobs?.failed ?? 0)" :severity="(clusterInfo.jobs?.failed ?? 0) > 0 ? 'danger' : 'secondary'" />
-            </div>
+        <div v-if="clusterInfo.summary?.length" class="runtime-summary">
+          <div v-for="item in clusterInfo.summary" :key="item.label" class="runtime-stat">
+            <span class="stat-label">{{ item.label }}</span>
+            <span class="stat-value">{{ item.value }}</span>
+            <span v-if="item.detail" class="stat-detail">{{ item.detail }}</span>
           </div>
         </div>
 
-        <!-- Nodes & Helm Releases row -->
         <div class="cluster-grid cluster-grid-2col">
-          <!-- Nodes -->
           <div class="cluster-section">
-            <h3>Nodes</h3>
-            <div v-if="clusterNodes.length === 0" class="text-muted">No node info available.</div>
-            <div v-else-if="clusterNodes[0]?.error" class="text-muted">
-              Node info unavailable (requires ClusterRole).
-            </div>
-            <div v-else class="node-list">
-              <div v-for="node in clusterNodes" :key="node.name" class="node-card">
-                <div class="node-header">
-                  <span class="node-name">{{ node.name }}</span>
-                  <Tag :value="node.ready ? 'Ready' : 'NotReady'" :severity="node.ready ? 'success' : 'danger'" />
+            <h3>Services and Workloads</h3>
+            <div v-if="!clusterInfo.workloads?.length" class="text-muted">No workloads found.</div>
+            <div v-else class="runtime-list">
+              <div v-for="workload in clusterInfo.workloads" :key="`${workload.kind}-${workload.name}`" class="runtime-workload">
+                <div class="runtime-row">
+                  <div>
+                    <span class="runtime-name">{{ workload.name }}</span>
+                    <span class="runtime-kind">{{ workload.kind }}</span>
+                    <span v-for="session in workload.sessions" :key="`${session.user}-${session.name}`" class="runtime-session">
+                      <i class="pi pi-user" /> {{ session.user }} / {{ session.name }}
+                    </span>
+                  </div>
+                  <div class="runtime-status">
+                    <span v-if="workload.detail" :title="workload.detail">{{ workload.detail }}</span>
+                    <Tag :value="workload.status" :severity="statusSeverity(workload.status)" />
+                  </div>
                 </div>
-                <div class="node-details">
-                  <div class="node-detail-row" v-if="node.instance_type">
-                    <span class="detail-label">Instance</span>
-                    <span class="detail-value">{{ node.instance_type }}</span>
-                  </div>
-                  <div class="node-detail-row">
-                    <span class="detail-label">CPU</span>
-                    <span class="detail-value resource-bar-cell">
-                      <span class="resource-text">{{ node.allocated?.cpu ?? '0' }} / {{ node.allocatable?.cpu ?? '?' }}</span>
-                      <div class="resource-bar" :title="`${node.allocated?.cpu ?? '0'} allocated of ${node.allocatable?.cpu ?? '?'} allocatable`">
-                        <div class="resource-bar-fill" :class="utilizationClass(node.allocated?.cpu, node.allocatable?.cpu)" :style="{ width: utilizationPct(node.allocated?.cpu, node.allocatable?.cpu) + '%' }"></div>
-                      </div>
-                    </span>
-                  </div>
-                  <div class="node-detail-row">
-                    <span class="detail-label">Memory</span>
-                    <span class="detail-value resource-bar-cell">
-                      <span class="resource-text">{{ formatMemory(node.allocated?.memory) }} / {{ formatMemory(node.allocatable?.memory) }}</span>
-                      <div class="resource-bar" :title="`${formatMemory(node.allocated?.memory)} allocated of ${formatMemory(node.allocatable?.memory)} allocatable`">
-                        <div class="resource-bar-fill" :class="utilizationClass(node.allocated?.memory, node.allocatable?.memory)" :style="{ width: utilizationPct(node.allocated?.memory, node.allocatable?.memory) + '%' }"></div>
-                      </div>
-                    </span>
-                  </div>
-                  <div class="node-detail-row">
-                    <span class="detail-label">Pods</span>
-                    <span class="detail-value resource-bar-cell">
-                      <span class="resource-text">{{ node.allocated?.pods ?? '0' }} / {{ node.allocatable?.pods ?? '?' }}</span>
-                      <div class="resource-bar" :title="`${node.allocated?.pods ?? '0'} allocated of ${node.allocatable?.pods ?? '?'} allocatable`">
-                        <div class="resource-bar-fill" :class="utilizationClass(node.allocated?.pods, node.allocatable?.pods)" :style="{ width: utilizationPct(node.allocated?.pods, node.allocatable?.pods) + '%' }"></div>
-                      </div>
-                    </span>
-                  </div>
-                  <div class="node-detail-row" v-if="node.kubelet_version">
-                    <span class="detail-label">Kubelet</span>
-                    <span class="detail-value">{{ node.kubelet_version }}</span>
-                  </div>
-                  <div class="node-detail-row" v-if="node.container_runtime">
-                    <span class="detail-label">Runtime</span>
-                    <span class="detail-value">{{ node.container_runtime }}</span>
-                  </div>
-                  <div class="node-detail-row" v-if="node.os || node.arch">
-                    <span class="detail-label">Platform</span>
-                    <span class="detail-value">{{ [node.os, node.arch].filter(Boolean).join('/') }}</span>
+                <div v-if="workload.children?.length" class="runtime-children">
+                  <div v-for="task in workload.children" :key="task.name" class="runtime-row runtime-child">
+                    <div>
+                      <span class="runtime-name">{{ task.name }}</span>
+                      <span class="runtime-kind">{{ task.kind }}</span>
+                      <span v-for="session in task.sessions" :key="`${session.user}-${session.name}`" class="runtime-session">
+                        <i class="pi pi-user" /> {{ session.user }} / {{ session.name }}
+                      </span>
+                    </div>
+                    <div class="runtime-status">
+                      <span v-if="task.detail" :title="task.detail">{{ task.detail }}</span>
+                      <Tag :value="task.status" :severity="statusSeverity(task.status)" />
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- Helm Releases -->
           <div class="cluster-section">
-            <h3>Helm Releases</h3>
-            <div v-if="helmReleases.length === 0" class="text-muted">No Helm releases found.</div>
-            <div v-else-if="helmReleases[0]?.error" class="text-muted">
-              Cannot read Helm release info.
+            <h3>Resources</h3>
+            <div v-if="!clusterInfo.resources?.length" class="text-muted">
+              {{ clusterInfo.resources_empty_message || 'No resource information available.' }}
             </div>
-            <div v-else class="helm-list">
-              <div v-for="rel in helmReleases" :key="rel.name" class="helm-row">
-                <div class="helm-name">{{ rel.name }}</div>
-                <div class="helm-meta">
-                  <Tag :value="rel.status" :severity="rel.status === 'deployed' ? 'success' : 'warn'" />
-                  <span class="helm-version">rev {{ rel.version }}</span>
-                  <span v-if="rel.updated" class="helm-updated">{{ formatRelative(rel.updated) }}</span>
+            <div v-else class="resource-list">
+              <div v-for="resource in clusterInfo.resources" :key="resource.name" class="resource-card">
+                <div class="node-header">
+                  <span class="node-name">{{ resource.name }}</span>
+                  <Tag :value="resource.status" :severity="statusSeverity(resource.status)" />
                 </div>
-              </div>
-            </div>
-            <!-- App version from summary -->
-            <div class="app-version-info" v-if="counts">
-              <div class="version-row">
-                <span class="detail-label">BeakerHub</span>
-                <span class="detail-value version-value">v{{ appVersion }}</span>
+                <div v-for="detail in resource.details" :key="detail.label" class="node-detail-row">
+                  <span class="detail-label">{{ detail.label }}</span>
+                  <span class="detail-value">{{ detail.value }}</span>
+                </div>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Recent Events -->
-        <div class="events-section" v-if="clusterInfo.events?.length">
+        <div class="events-section" v-if="clusterInfo.alerts?.length">
           <h3>Recent Warnings</h3>
-          <DataTable :value="clusterInfo.events" stripedRows class="compact-table events-table">
+          <DataTable :value="clusterInfo.alerts" stripedRows class="compact-table events-table">
             <Column field="reason" header="Reason" style="width: 10rem;" />
-            <Column field="involved_object" header="Object" style="width: 12rem;" />
+            <Column field="object" header="Object" style="width: 12rem;" />
             <Column field="message" header="Message">
-              <template #body="{ data }">
-                <span :title="data.message">{{ truncate(data.message, 100) }}</span>
-              </template>
+              <template #body="{ data }"><span :title="data.message">{{ truncate(data.message, 100) }}</span></template>
             </Column>
-            <Column field="last_timestamp" header="Time" style="width: 10rem;">
-              <template #body="{ data }">
-                {{ formatRelative(data.last_timestamp) }}
-              </template>
+            <Column field="timestamp" header="Time" style="width: 10rem;">
+              <template #body="{ data }">{{ formatRelative(data.timestamp) }}</template>
             </Column>
-            <Column field="count" header="Count" style="width: 5rem;" />
           </DataTable>
         </div>
       </template>
     </div>
 
-    <PodLogViewer
+    <SessionLogViewer
       v-model:visible="logsDialogVisible"
       :username="logsTarget.user"
       :serverName="logsTarget.name"
@@ -391,9 +309,9 @@ import Column from 'primevue/column';
 import Button from 'primevue/button';
 import Tag from 'primevue/tag';
 import { useAdminStore } from '@/stores/admin';
-import type { DashboardCounts, DashboardImport, ClusterInfo, ClusterNode, HelmRelease } from '@/stores/admin';
+import type { DashboardCounts, DashboardImport, ClusterInfo } from '@/stores/admin';
 import { useContextStore } from '@/stores/context';
-import PodLogViewer from '@/components/admin/PodLogViewer.vue';
+import SessionLogViewer from '@/components/admin/SessionLogViewer.vue';
 
 interface ServerRow {
   user: string;
@@ -418,9 +336,6 @@ const logsTarget = ref<{ user: string; name: string }>({ user: '', name: '' });
 const counts = computed<DashboardCounts | null>(() => adminStore.dashboardSummary?.counts ?? null);
 const recentImports = computed<DashboardImport[]>(() => adminStore.dashboardSummary?.recent_imports ?? []);
 const clusterInfo = computed<ClusterInfo | null>(() => adminStore.clusterInfo);
-const clusterNodes = computed<ClusterNode[]>(() => adminStore.clusterInfo?.nodes ?? []);
-const helmReleases = computed<HelmRelease[]>(() => adminStore.clusterInfo?.helm_releases ?? []);
-const appVersion = computed(() => adminStore.dashboardSummary?.app_version ?? '...');
 
 const serverList = computed<ServerRow[]>(() => {
   const rows: ServerRow[] = [];
@@ -472,6 +387,10 @@ async function refreshAll(silent = false) {
   } finally {
     refreshing.value = false;
   }
+}
+
+function pendingStatus(status: string): string {
+  return status === 'stop' ? 'Shutting Down' : status;
 }
 
 function openLogs(server: ServerRow) {
@@ -537,78 +456,25 @@ function formatImportResult(result: Record<string, number>): string {
   return parts.join(', ');
 }
 
-function parseCpuToMillicores(value: string | null | undefined): number {
-  if (!value || value === '?') return 0;
-  if (value.endsWith('m')) return parseInt(value.slice(0, -1), 10) || 0;
-  return (parseFloat(value) || 0) * 1000;
-}
-
-function parseMemoryToKi(value: string | null | undefined): number {
-  if (!value || value === '?') return 0;
-  const match = value.match(/^([\d.]+)(Ki|Mi|Gi|Ti)?$/);
-  if (!match) return 0;
-  const num = parseFloat(match[1]);
-  switch (match[2]) {
-    case 'Ti': return num * 1024 * 1024 * 1024;
-    case 'Gi': return num * 1024 * 1024;
-    case 'Mi': return num * 1024;
-    case 'Ki': return num;
-    default: return num / 1024;
+function statusSeverity(status: string): "success" | "info" | "warn" | "danger" | "secondary" {
+  switch (status.toLowerCase()) {
+    case 'running':
+    case 'ready':
+    case 'active':
+    case 'bound':
+      return 'success';
+    case 'pending':
+    case 'provisioning':
+      return 'warn';
+    case 'failed':
+    case 'unavailable':
+    case 'stopped':
+      return 'danger';
+    default:
+      return 'secondary';
   }
 }
 
-function utilizationPct(allocated: string | null | undefined, allocatable: string | null | undefined): number {
-  if (!allocated || !allocatable || allocatable === '?' || allocated === '?') return 0;
-  let used: number;
-  let total: number;
-  // Memory values have Ki/Mi/Gi/Ti suffixes
-  if (allocated.match(/[KMGTi]i?$/) || allocatable.match(/[KMGTi]i?$/)) {
-    used = parseMemoryToKi(allocated);
-    total = parseMemoryToKi(allocatable);
-  } else {
-    // CPU (e.g. '500m', '2') or plain numbers (pods)
-    used = parseCpuToMillicores(allocated);
-    total = parseCpuToMillicores(allocatable);
-  }
-  if (total === 0) return 0;
-  return Math.min(Math.round((used / total) * 100), 100);
-}
-
-function utilizationClass(allocated: string | null | undefined, allocatable: string | null | undefined): string {
-  const pct = utilizationPct(allocated, allocatable);
-  if (pct >= 90) return 'bar-danger';
-  if (pct >= 70) return 'bar-warn';
-  return 'bar-ok';
-}
-
-function formatMemory(value: string | null | undefined): string {
-  if (!value) return '?';
-  // K8s memory is typically in Ki (kibibytes)
-  const match = value.match(/^(\d+)(Ki|Mi|Gi|Ti)?$/);
-  if (!match) return value;
-  const num = parseInt(match[1], 10);
-  const unit = match[2] || '';
-  if (unit === 'Ki') {
-    if (num >= 1048576) return `${(num / 1048576).toFixed(1)}Ti`;
-    if (num >= 1024) return `${(num / 1024).toFixed(1)}Gi`;
-    return `${num}Ki`;
-  }
-  if (unit === 'Mi') {
-    if (num >= 1024) return `${(num / 1024).toFixed(1)}Gi`;
-    return `${num}Mi`;
-  }
-  return value;
-}
-
-function phaseSeverity(phase: string): "success" | "info" | "warn" | "danger" | "secondary" {
-  switch (phase) {
-    case 'Running': return 'success';
-    case 'Succeeded': return 'info';
-    case 'Pending': return 'warn';
-    case 'Failed': return 'danger';
-    default: return 'secondary';
-  }
-}
 </script>
 
 <style lang="scss" scoped>
@@ -799,15 +665,6 @@ a.summary-card {
   margin-bottom: 1.5rem;
 }
 
-.namespace-badge {
-  font-size: 0.8rem;
-  font-family: monospace;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  background: var(--p-surface-b, #f0f0f0);
-  color: var(--p-text-secondary-color);
-}
-
 .cluster-unavailable {
   display: flex;
   align-items: center;
@@ -817,97 +674,46 @@ a.summary-card {
   background: var(--p-surface-b, #f8f9fa);
   color: var(--p-text-secondary-color);
   font-size: 0.9rem;
-
-  i { font-size: 1.1rem; }
 }
 
 .cluster-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
   gap: 1.5rem;
-  margin-bottom: 1rem;
 }
 
-@media (max-width: 900px) {
-  .cluster-grid {
-    grid-template-columns: 1fr;
-  }
+.cluster-grid-2col {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.cluster-section {
-  h3 {
-    margin: 0 0 0.75rem;
-    font-size: 0.95rem;
-    font-weight: 600;
-    color: var(--p-text-color);
-  }
+.cluster-section h3 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
 }
 
-.cluster-stat-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.3rem 0;
-  font-size: 0.875rem;
-}
-
-.stat-label {
+.stat-label, .detail-label {
   color: var(--p-text-secondary-color);
 }
 
 .stat-value {
+  font-size: 1.25rem;
   font-weight: 600;
 }
 
-.component-breakdown {
-  margin-top: 0.75rem;
-  padding-top: 0.5rem;
-  border-top: 1px solid var(--p-surface-border, #eee);
-}
-
-.component-row {
+.node-header, .node-detail-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.2rem 0;
-  font-size: 0.825rem;
-}
-
-.component-name {
-  color: var(--p-text-secondary-color);
-  text-transform: capitalize;
-}
-
-.component-count {
-  font-weight: 500;
-}
-
-.pvc-row {
-  display: flex;
   justify-content: space-between;
-  align-items: center;
-  padding: 0.35rem 0;
-  font-size: 0.875rem;
+  gap: 0.75rem;
 }
 
-.pvc-name {
+.node-header {
+  margin-bottom: 0.5rem;
+}
+
+.node-name, .detail-value {
   font-family: monospace;
   font-size: 0.8rem;
-}
-
-.pvc-detail {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  font-size: 0.825rem;
-}
-
-/* Nodes & Helm Releases */
-.cluster-grid-2col {
-  grid-template-columns: 1fr 1fr;
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--p-surface-border, #eee);
 }
 
 @media (max-width: 900px) {
@@ -916,145 +722,109 @@ a.summary-card {
   }
 }
 
-.node-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.node-card {
-  border: 1px solid var(--p-surface-border, #eee);
-  border-radius: 6px;
-  padding: 0.75rem;
-}
-
-.node-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.node-name {
-  font-family: monospace;
-  font-size: 0.85rem;
-  font-weight: 600;
-}
-
-.node-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-}
-
-.node-detail-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.825rem;
-}
-
-.detail-label {
+.runtime-detail {
+  display: block;
+  margin-top: 0.2rem;
   color: var(--p-text-secondary-color);
-  min-width: 5rem;
-}
-
-.detail-value {
-  font-family: monospace;
   font-size: 0.8rem;
 }
 
-.resource-bar-cell {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 0.2rem;
-  min-width: 10rem;
+.runtime-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.5rem;
 }
 
-.resource-text {
+.runtime-stat {
+  display: grid;
+  gap: 0.2rem;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: var(--p-surface-b, #f8f9fa);
+}
+
+.stat-detail, .runtime-kind, .runtime-status, .runtime-session {
+  color: var(--p-text-secondary-color);
+  font-size: 0.8rem;
+}
+
+.runtime-session {
+  display: block;
+  margin-top: 0.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.resource-bar {
-  width: 100%;
-  height: 6px;
-  background: var(--p-surface-200, #e5e7eb);
-  border-radius: 3px;
-  overflow: hidden;
-}
-
-.resource-bar-fill {
-  height: 100%;
-  border-radius: 3px;
-  transition: width 0.3s ease;
-}
-
-.bar-ok {
-  background-color: var(--p-green-500, #22c55e);
-}
-
-.bar-warn {
-  background-color: var(--p-orange-500, #f97316);
-}
-
-.bar-danger {
-  background-color: var(--p-red-500, #ef4444);
-}
-
-.helm-list {
+.runtime-list, .resource-list, .runtime-children {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.6rem;
 }
 
-.helm-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.5rem 0.75rem;
+.runtime-children {
+  margin: -0.2rem 0 0 1rem;
+  padding-left: 0.75rem;
+  border-left: 2px solid var(--p-surface-border, #eee);
+}
+
+.runtime-child {
+  background: var(--p-surface-b, #f8f9fa);
+}
+
+.runtime-row, .resource-card {
+  padding: 0.65rem 0.75rem;
   border: 1px solid var(--p-surface-border, #eee);
   border-radius: 6px;
 }
 
-.helm-name {
+.runtime-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 0.75rem;
+}
+
+.runtime-row > div,
+.runtime-status > span {
+  min-width: 0;
+}
+
+.runtime-row > div:first-child {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.runtime-status {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.runtime-status > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.runtime-status :deep(.p-tag) {
+  flex: 0 0 auto;
+}
+
+.runtime-name {
+  display: block;
+  overflow-wrap: anywhere;
   font-family: monospace;
   font-size: 0.85rem;
   font-weight: 600;
 }
 
-.helm-meta {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  font-size: 0.825rem;
-}
-
-.helm-version {
-  color: var(--p-text-secondary-color);
-}
-
-.helm-updated {
-  color: var(--p-text-secondary-color);
-  font-size: 0.8rem;
-}
-
-.app-version-info {
-  margin-top: 1rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--p-surface-border, #eee);
-}
-
-.version-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 0.875rem;
-}
-
-.version-value {
-  font-weight: 600;
-  color: var(--p-primary-color);
+.runtime-status {
+  text-align: right;
 }
 
 .events-section {

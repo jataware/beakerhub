@@ -1,13 +1,44 @@
 # SPDX-FileCopyrightText: 2024-present Jataware Corp
 #
 # SPDX-License-Identifier: MIT
-"""Unit tests for beakerhub.spawner.kubernetes module."""
+"""Unit tests for the Kubernetes spawner service."""
 
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from beakerhub.spawner.kubernetes import BeakerKubeSpawner
+from beakerhub.services.spawner.kubernetes_spawner import BeakerKubeSpawner
+
+
+def spawner_for_apply_user_options(**overrides):
+    """Construct a minimal real spawner for unbound method tests.
+
+    The method now uses ``super()``, so its receiver must be an actual
+    ``BeakerKubeSpawner`` rather than a mock with that specification.
+    """
+    spawner = object.__new__(BeakerKubeSpawner)
+    spawner._trait_values = {}
+    spawner._trait_notifiers = {}
+    spawner._trait_validators = {}
+    spawner._cross_validation_lock = False
+
+    db = MagicMock()
+    db.query.return_value.filter.return_value.first.return_value = None
+    db.query.return_value.filter.return_value.all.return_value = []
+    values = {
+        "db": db,
+        "beaker_context": "",
+        "context_config": {},
+        "node_env": {},
+        "node_policy_overrides": {},
+        "debug": False,
+        "default_registry": "registry.example",
+        "default_tag": "latest",
+    }
+    values.update(overrides)
+    for name, value in values.items():
+        setattr(spawner, name, value)
+    return spawner
 
 
 class TestBeakerKubeSpawner:
@@ -126,82 +157,75 @@ class TestBeakerKubeSpawner:
 
 
 class TestApplyUserOptions:
-    """Tests for BeakerKubeSpawner.apply_user_options static method."""
+    """Tests for BeakerKubeSpawner.apply_user_options."""
 
     def test_sets_beaker_context_from_user_options(self):
         """apply_user_options should set beaker_context from contextSlug."""
-        spawner = MagicMock()
-        spawner.beaker_context = ""
-        spawner.context_config = {}
+        spawner = spawner_for_apply_user_options()
 
         user_options = {"contextSlug": "weather-context"}
 
-        BeakerKubeSpawner.apply_user_options(spawner, user_options)
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, user_options)
 
         assert spawner.beaker_context == "weather-context"
 
     def test_sets_beaker_context_strips_prefix(self):
         """apply_user_options should strip prefix from contextSlug if it contains ':'."""
-        spawner = MagicMock()
-        spawner.beaker_context = ""
-        spawner.context_config = {}
+        spawner = spawner_for_apply_user_options()
 
         user_options = {"contextSlug": "pkg:weather-context"}
 
-        BeakerKubeSpawner.apply_user_options(spawner, user_options)
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, user_options)
 
         assert spawner.beaker_context == "weather-context"
 
     def test_sets_context_config_from_user_options(self):
         """apply_user_options should set context_config from contextOptions."""
-        spawner = MagicMock()
-        spawner.beaker_context = ""
-        spawner.context_config = {}
+        spawner = spawner_for_apply_user_options()
 
         user_options = {
             "contextOptions": {"key1": "value1", "key2": "value2"}
         }
 
-        BeakerKubeSpawner.apply_user_options(spawner, user_options)
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, user_options)
 
         assert spawner.context_config == {"key1": "value1", "key2": "value2"}
 
     def test_handles_missing_context_option(self):
         """apply_user_options should handle missing contextSlug gracefully."""
-        spawner = MagicMock()
-        spawner.beaker_context = "original"
-        spawner.context_config = {}
+        spawner = spawner_for_apply_user_options(beaker_context="original")
 
         user_options = {}
 
-        BeakerKubeSpawner.apply_user_options(spawner, user_options)
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, user_options)
 
         # beaker_context should not be modified
         assert spawner.beaker_context == "original"
 
     def test_handles_missing_context_options(self):
         """apply_user_options should handle missing contextOptions gracefully."""
-        spawner = MagicMock()
-        spawner.beaker_context = ""
-        spawner.context_config = {"original": "config"}
+        spawner = spawner_for_apply_user_options(
+            context_config={"original": "config"}
+        )
 
         user_options = {"contextSlug": "new-context"}
 
-        BeakerKubeSpawner.apply_user_options(spawner, user_options)
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, user_options)
 
         # context_config should not be modified
         assert spawner.context_config == {"original": "config"}
 
     def test_handles_empty_user_options(self):
         """apply_user_options should handle empty options dict."""
-        spawner = MagicMock()
-        spawner.beaker_context = "original"
-        spawner.context_config = {"original": "config"}
+        spawner = spawner_for_apply_user_options(
+            beaker_context="original",
+            context_config={"original": "config"},
+        )
 
         user_options = {}
 
         # Should not raise
-        BeakerKubeSpawner.apply_user_options(spawner, user_options)
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, user_options)
 
         assert spawner.beaker_context == "original"
         assert spawner.context_config == {"original": "config"}
@@ -236,14 +260,7 @@ class TestPolicyOverridePassing:
 
     @pytest.fixture
     def spawner(self, db):
-        spawner = MagicMock()
-        spawner.db = db
-        spawner.debug = False
-        spawner.default_tag = "latest"
-        spawner.extra_container_config = {}
-        spawner.node_env = {}
-        spawner.node_policy_overrides = {}
-        return spawner
+        return spawner_for_apply_user_options(db=db)
 
     def test_passes_only_secrets_with_overrides(self, db, spawner):
         """Secrets at their defaults send nothing; the node already assumes defaults."""
@@ -259,7 +276,7 @@ class TestPolicyOverridePassing:
         ])
         db.commit()
 
-        BeakerKubeSpawner.apply_user_options(spawner, {})
+        BeakerKubeSpawner.apply_user_options(spawner, spawner, {})
 
         # Both values reach the pod...
         assert spawner.node_env == {"PRIVATE_LLM_KEY": "a", "SHARED_API_KEY": "b"}
@@ -290,7 +307,9 @@ class TestPolicyOverridePassing:
         ])
         db.commit()
 
-        BeakerKubeSpawner.apply_user_options(spawner, {"nodeSlug": "test-node"})
+        BeakerKubeSpawner.apply_user_options(
+            spawner, spawner, {"nodeSlug": "test-node"}
+        )
 
         assert spawner.node_env["SHARED_API_KEY"] == "node"
         assert spawner.node_policy_overrides == {"SHARED_API_KEY": {"ui_message_policy": "last4"}}
@@ -312,7 +331,9 @@ class TestPolicyOverridePassing:
         ])
         db.commit()
 
-        BeakerKubeSpawner.apply_user_options(spawner, {"nodeSlug": "test-node"})
+        BeakerKubeSpawner.apply_user_options(
+            spawner, spawner, {"nodeSlug": "test-node"}
+        )
 
         assert spawner.node_env["SHARED_API_KEY"] == "node"
         assert spawner.node_policy_overrides == {}
@@ -336,7 +357,9 @@ class TestPolicyOverridePassing:
         ))
         db.commit()
 
-        BeakerKubeSpawner.apply_user_options(spawner, {"contextSlug": "weather"})
+        BeakerKubeSpawner.apply_user_options(
+            spawner, spawner, {"contextSlug": "weather"}
+        )
 
         assert spawner.node_env == {}
         assert spawner.node_policy_overrides == {}

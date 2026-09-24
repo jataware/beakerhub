@@ -447,7 +447,7 @@ class AdminNodeImageListHandler(APIHandler):
         import_error = None
         app = self.settings.get("app")
         if app:
-            from beakerhub.nodes.import_handlers import launch_import_task
+            from beakerhub.tasks.image_import.task import launch_import_task
             try:
                 import_task = launch_import_task(self.db, app, node)
             except Exception as e:

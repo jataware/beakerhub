@@ -1,14 +1,14 @@
 # SPDX-FileCopyrightText: 2024-present Jataware Corp
 #
 # SPDX-License-Identifier: MIT
-"""Unit tests for beakerhub.spawner.base module."""
+"""Unit tests for the base spawner service."""
 
 import re
 from unittest.mock import MagicMock, patch, PropertyMock
 
 import pytest
 
-from beakerhub.spawner.base import BeakerSpawner
+from beakerhub.services.spawner.base import BeakerSpawner
 
 
 class TestBeakerSpawner:

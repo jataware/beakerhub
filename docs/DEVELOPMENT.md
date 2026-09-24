@@ -309,8 +309,10 @@ python -m pytest tests/unit/test_utils.py
 python -m pytest tests/unit/test_utils.py::TestToJson::test_serializes_dict
 ```
 
-The authentication tests use Moto to emulate Cognito. Unit tests must not
-require real AWS credentials or network access.
+The authentication tests use Moto to emulate Cognito. ECS-spawner unit tests
+use botocore's `Stubber` to validate ECS API requests and responses without AWS
+credentials or network access; they do not start containers. A future
+Docker-enabled LocalStack suite should cover ECS task image execution.
 
 ### UI unit tests
 

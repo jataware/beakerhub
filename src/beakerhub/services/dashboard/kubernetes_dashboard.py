@@ -1,170 +1,43 @@
-"""Admin dashboard API handlers for BeakerHub.
-
-Provides aggregated summary statistics and optional Kubernetes cluster
-information for the admin dashboard page.
-"""
-import json
+"""Kubernetes implementation of the dashboard service."""
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any
 
-from tornado import web
-from jupyterhub.apihandlers import APIHandler
-from jupyterhub.scopes import needs_scope
-from jupyterhub.orm import User, Spawner
-from sqlalchemy import func
+from traitlets import Unicode
 
-from beakerhub import __version__
-from beakerhub.orm import (
-    BeakerSession,
-    Context,
-    Integration,
-    Language,
-    NodeImages,
-    NodeImageTask,
-    NodeSecret,
-    Workflow,
+from beakerhub.runtimes.kubernetes import KubernetesRuntime
+from beakerhub.services.dashboard.base import (
+    BaseDashboardService,
+    DashboardServiceError,
 )
 
 log = logging.getLogger(__name__)
 
 
-class AdminDashboardSummaryHandler(APIHandler):
-    """Aggregated counts and summary statistics for the admin dashboard."""
+class KubernetesDashboardService(BaseDashboardService):
+    """Provide Kubernetes cluster data and Pod logs."""
 
-    def compute_etag(self) -> None:
-        return None
+    namespace = Unicode(
+        "beakerhub",
+        config=True,
+        help="Kubernetes namespace inspected by the dashboard service.",
+    )
 
-    @needs_scope('admin:users')
-    async def get(self):
-        db = self.db
+    def _runtime(self) -> KubernetesRuntime:
+        parent_runtime = getattr(self.parent, "runtime", None)
+        if isinstance(parent_runtime, KubernetesRuntime):
+            return parent_runtime
+        return KubernetesRuntime(namespace=self.namespace)
 
-        # Entity counts
-        images_total = db.query(func.count(NodeImages.id)).scalar() or 0
-        images_enabled = db.query(func.count(NodeImages.id)).filter(
-            NodeImages.enabled == True
-        ).scalar() or 0
-
-        contexts_total = db.query(func.count(Context.id)).scalar() or 0
-        contexts_enabled = db.query(func.count(Context.id)).filter(
-            Context.enabled == True
-        ).scalar() or 0
-
-        workflows_total = db.query(func.count(Workflow.id)).scalar() or 0
-        workflows_enabled = db.query(func.count(Workflow.id)).filter(
-            Workflow.enabled == True
-        ).scalar() or 0
-
-        integrations_total = db.query(func.count(Integration.id)).scalar() or 0
-        integrations_enabled = db.query(func.count(Integration.id)).filter(
-            Integration.enabled == True
-        ).scalar() or 0
-
-        languages_total = db.query(func.count(Language.slug)).scalar() or 0
-
-        secrets_total = db.query(func.count(NodeSecret.id)).scalar() or 0
-        secrets_global = db.query(func.count(NodeSecret.id)).filter(
-            NodeSecret.node_image_id.is_(None)
-        ).scalar() or 0
-
-        # User counts
-        users_total = db.query(func.count(User.id)).scalar() or 0
-        users_admin = db.query(func.count(User.id)).filter(
-            User.admin == True
-        ).scalar() or 0
-
-        # Active sessions: JupyterHub spawners with a server_id (meaning running)
-        active_servers = db.query(func.count(Spawner.id)).filter(
-            Spawner.server_id.isnot(None)
-        ).scalar() or 0
-
-        # BeakerSession counts (historical)
-        beaker_sessions_total = db.query(func.count(BeakerSession.id)).scalar() or 0
-
-        # Recent import tasks (last 5)
-        recent_tasks = db.query(NodeImageTask).join(
-            NodeImages, NodeImageTask.node_image_id == NodeImages.id
-        ).order_by(
-            NodeImageTask.updated_at.desc()
-        ).limit(5).all()
-
-        recent_imports = []
-        for task in recent_tasks:
-            recent_imports.append({
-                "task_id": task.id,
-                "node_image_slug": task.node_image.slug if task.node_image else None,
-                "task_type": task.task_type,
-                "status": task.status,
-                "job_name": task.job_name,
-                "created_at": task.created_at.isoformat() if task.created_at else None,
-                "updated_at": task.updated_at.isoformat() if task.updated_at else None,
-                "error": task.error,
-                "result": task.result,
-            })
-
-        result = {
-            "app_version": __version__,
-            "counts": {
-                "images": {"total": images_total, "enabled": images_enabled},
-                "contexts": {"total": contexts_total, "enabled": contexts_enabled},
-                "workflows": {"total": workflows_total, "enabled": workflows_enabled},
-                "integrations": {"total": integrations_total, "enabled": integrations_enabled},
-                "languages": {"total": languages_total},
-                "secrets": {"total": secrets_total, "global": secrets_global, "per_node": secrets_total - secrets_global},
-                "users": {"total": users_total, "admin": users_admin},
-                "sessions": {
-                    "active_servers": active_servers,
-                    "beaker_sessions_total": beaker_sessions_total,
-                },
-            },
-            "recent_imports": recent_imports,
-        }
-
-        self.set_header("Content-Type", "application/json")
-        self.write(json.dumps(result))
-
-
-class AdminDashboardClusterHandler(APIHandler):
-    """Kubernetes cluster information for the admin dashboard.
-
-    Queries the K8s API for pod, PVC, event, and job information.
-    Returns available: false if K8s access is not available.
-    """
-
-    def compute_etag(self) -> None:
-        return None
-
-    @needs_scope('admin:users')
-    async def get(self):
-        try:
-            result = self._get_cluster_info()
-        except Exception as e:
-            log.warning(f"Failed to fetch K8s cluster info: {e}")
-            result = {
-                "available": False,
-                "error": str(e),
-            }
-
-        self.set_header("Content-Type", "application/json")
-        self.write(json.dumps(result))
-
-    def _get_cluster_info(self) -> dict[str, Any]:
-        from kubernetes import client as k8s_client
+    def get_dashboard(self) -> dict[str, Any]:
         from kubernetes import config as k8s_config
 
         try:
-            k8s_config.load_incluster_config()
+            batch_api, core_api = self._runtime().get_clients()
         except k8s_config.ConfigException:
-            try:
-                k8s_config.load_kube_config()
-            except k8s_config.ConfigException:
-                return {"available": False, "error": "No K8s configuration found"}
+            return {"available": False, "error": "No K8s configuration found"}
 
-        core_api = k8s_client.CoreV1Api()
-        batch_api = k8s_client.BatchV1Api()
-
-        app = self.settings.get("app")
-        namespace = getattr(app, "task_namespace", "beakerhub")
+        namespace = self.namespace
 
         # Pods
         pods_result = self._get_pod_info(core_api, namespace)
@@ -181,19 +54,84 @@ class AdminDashboardClusterHandler(APIHandler):
         # Cluster nodes (cluster-scoped — requires ClusterRole)
         nodes_result = self._get_node_info(core_api)
 
-        # Helm releases (stored as secrets with owner=helm label)
-        helm_result = self._get_helm_releases(core_api, namespace)
-
+        pod_phases = pods_result.get("by_phase", {})
         return {
             "available": True,
-            "namespace": namespace,
-            "pods": pods_result,
-            "pvcs": pvcs_result,
-            "jobs": jobs_result,
-            "events": events_result,
-            "nodes": nodes_result,
-            "helm_releases": helm_result,
+            "runtime": {"provider": "Kubernetes", "scope": namespace},
+            "summary": [
+                {
+                    "label": "Workloads",
+                    "value": pods_result.get("total", 0),
+                    "detail": f"{pod_phases.get('Running', 0)} running, "
+                    f"{pod_phases.get('Pending', 0)} pending",
+                },
+                {
+                    "label": "Tasks",
+                    "value": jobs_result.get("total", 0),
+                    "detail": f"{jobs_result.get('active', 0)} active, "
+                    f"{jobs_result.get('failed', 0)} failed",
+                    "severity": "danger" if jobs_result.get("failed", 0) else None,
+                },
+                {
+                    "label": "Storage volumes",
+                    "value": len(pvcs_result),
+                    "detail": f"{sum(1 for pvc in pvcs_result if pvc.get('phase') == 'Bound')} ready",
+                },
+            ],
+            "workloads": [
+                {
+                    "name": name,
+                    "kind": "Workload",
+                    "status": self._component_status(info.get("phases", {})),
+                    "detail": f"{info.get('count', 0)} instances",
+                }
+                for name, info in pods_result.get("by_component", {}).items()
+            ],
+            "resources": [
+                {
+                    "name": node.get("name", "Unknown"),
+                    "status": "ready" if node.get("ready") else "unavailable",
+                    "details": [
+                        {"label": "Instance", "value": node.get("instance_type") or "—"},
+                        {"label": "CPU", "value": f"{node.get('allocated', {}).get('cpu', '0')} / {node.get('allocatable', {}).get('cpu', '?')}"},
+                        {"label": "Memory", "value": f"{node.get('allocated', {}).get('memory', '0')} / {node.get('allocatable', {}).get('memory', '?')}"},
+                    ],
+                }
+                for node in nodes_result
+                if not node.get("error")
+            ] + [
+                {
+                    "name": pvc.get("name", "Unknown"),
+                    "status": (pvc.get("phase") or "unknown").lower(),
+                    "details": [
+                        {"label": "Storage", "value": pvc.get("capacity") or "Unknown"},
+                        {"label": "Class", "value": pvc.get("storage_class") or "Default"},
+                    ],
+                }
+                for pvc in pvcs_result
+                if not pvc.get("error")
+            ],
+            "alerts": [
+                {
+                    "reason": event.get("reason", "Warning"),
+                    "message": event.get("message", ""),
+                    "object": event.get("involved_object"),
+                    "timestamp": event.get("last_timestamp"),
+                }
+                for event in events_result
+                if not event.get("error")
+            ],
         }
+
+    @staticmethod
+    def _component_status(phases: dict[str, int]) -> str:
+        if phases.get("Failed"):
+            return "failed"
+        if phases.get("Pending"):
+            return "pending"
+        if phases.get("Running"):
+            return "running"
+        return "unknown"
 
     def _get_pod_info(self, core_api, namespace: str) -> dict[str, Any]:
         try:
@@ -509,52 +447,21 @@ class AdminDashboardClusterHandler(APIHandler):
         return sorted(result, key=lambda r: r.get("name", ""))
 
 
-class AdminPodLogsHandler(APIHandler):
-    """Fetch container logs for a session pod.
-
-    Locates the pod via the ``hub.jupyter.org/servername`` label and reads
-    logs from the specified container (default: ``notebook``).
-    """
-
-    def compute_etag(self) -> None:
-        return None
-
-    @needs_scope('admin:users')
-    async def get(self, owner: str, session_id: str):
-        container = self.get_argument("container", "notebook")
-        try:
-            tail_lines = int(self.get_argument("tail_lines", "5000"))
-        except ValueError:
-            tail_lines = 5000
-        tail_lines = max(1, min(tail_lines, 100000))
-
-        try:
-            result = self._get_pod_logs(session_id, container, tail_lines)
-        except Exception as e:
-            log.warning(f"Failed to fetch pod logs for {owner}/{session_id}: {e}")
-            raise web.HTTPError(500, reason=str(e))
-
-        self.set_header("Content-Type", "application/json")
-        self.write(json.dumps(result))
-
-    def _get_pod_logs(
+    def get_session_logs(
         self, server_name: str, container: str, tail_lines: int
     ) -> dict[str, Any]:
         from kubernetes import client as k8s_client
         from kubernetes import config as k8s_config
 
         try:
-            k8s_config.load_incluster_config()
+            _, core_api = self._runtime().get_clients()
         except k8s_config.ConfigException:
-            try:
-                k8s_config.load_kube_config()
-            except k8s_config.ConfigException:
-                raise web.HTTPError(503, reason="No Kubernetes configuration found")
+            raise DashboardServiceError(
+                503,
+                "No Kubernetes configuration found",
+            )
 
-        core_api = k8s_client.CoreV1Api()
-
-        app = self.settings.get("app")
-        namespace = getattr(app, "task_namespace", "beakerhub")
+        namespace = self.namespace
 
         # Find the pod by JupyterHub server-name label
         label_selector = f"hub.jupyter.org/servername={server_name}"
@@ -562,8 +469,9 @@ class AdminPodLogsHandler(APIHandler):
             namespace=namespace, label_selector=label_selector
         )
         if not pods.items:
-            raise web.HTTPError(
-                404, reason=f"No pod found with servername={server_name}"
+            raise DashboardServiceError(
+                404,
+                f"No pod found with servername={server_name}",
             )
 
         pod = pods.items[0]
@@ -578,9 +486,9 @@ class AdminPodLogsHandler(APIHandler):
             )
         except k8s_client.exceptions.ApiException as e:
             if e.status == 400:
-                raise web.HTTPError(
+                raise DashboardServiceError(
                     400,
-                    reason=f"Container '{container}' not found in pod '{pod_name}'",
+                    f"Container '{container}' not found in pod '{pod_name}'",
                 )
             raise
 
@@ -588,6 +496,7 @@ class AdminPodLogsHandler(APIHandler):
         truncated = len(log_lines) >= tail_lines
 
         return {
+            "runtime_name": pod_name,
             "pod_name": pod_name,
             "container": container,
             "logs": logs or "",
@@ -595,10 +504,3 @@ class AdminPodLogsHandler(APIHandler):
             "truncated": truncated,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
-
-
-dashboard_handlers = [
-    (r"/api/beakerhub/admin/dashboard/summary", AdminDashboardSummaryHandler),
-    (r"/api/beakerhub/admin/dashboard/cluster", AdminDashboardClusterHandler),
-    (r"/api/beakerhub/admin/dashboard/pod-logs/([^/]+)/([^/]+)", AdminPodLogsHandler),
-]
