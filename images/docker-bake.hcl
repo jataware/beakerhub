@@ -132,6 +132,7 @@ target "server" {
     base = "target:base"
     src = "../"
     beakerhub-ui = "target:beakerhub-ui"
+    config = "./config_files"
   }
   tags = tagged("server", tag)
 }

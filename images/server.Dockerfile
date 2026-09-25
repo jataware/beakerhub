@@ -42,4 +42,7 @@ COPY --from=beakerhub-ui /ui /ui
 
 RUN rm -fr /beaker /pkg
 
+COPY --from=config /beakerhub_crdc_plugin-0.0.1-py3-none-any.whl /dist/beakerhub_crdc_plugin-0.0.1-py3-none-any.whl
+RUN pip install --no-cache-dir /dist/beakerhub_crdc_plugin-0.0.1-py3-none-any.whl
+
 CMD ["-m", "beakerhub.app", "--ip", "0.0.0.0", "--BeakerHub.beaker_static_path", "/ui"]
