@@ -154,6 +154,23 @@ def test_definition_contains_session_overrides_and_runtime_launch_options():
     }
 
 
+def test_task_overrides_include_context_options_payload():
+    spawner = configured_spawner(
+        get_env=lambda: {
+            "BEAKER_DEFAULT_CONTEXT_PAYLOAD": '{"model": "example"}',
+        }
+    )
+
+    overrides = BeakerAwsECSSpawner._task_overrides(spawner)
+
+    assert overrides["containerOverrides"][0]["environment"] == [
+        {
+            "name": "BEAKER_DEFAULT_CONTEXT_PAYLOAD",
+            "value": '{"model": "example"}',
+        }
+    ]
+
+
 def test_definition_enables_ecs_exec_when_spawner_debug_is_enabled():
     spawner = configured_spawner(debug=True)
 

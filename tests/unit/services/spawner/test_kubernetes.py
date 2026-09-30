@@ -139,6 +139,25 @@ class TestBeakerKubeSpawner:
 
         assert result["BEAKER_DEFAULT_CONTEXT"] == "custom-context"
 
+    def test_get_env_includes_context_options_payload(self, mock_spawner, mock_user):
+        """get_env should serialize context options for the node kernel."""
+        mock_spawner.user = mock_user
+        mock_spawner.context_config = {
+            "model": "example",
+            "settings": {"temperature": 0.2},
+        }
+
+        with patch.object(
+            BeakerKubeSpawner.__bases__[0],
+            "get_env",
+            return_value={"BEAKER_DEFAULT_CONTEXT_PAYLOAD": '{"model": "old"}'},
+        ):
+            result = BeakerKubeSpawner.get_env(mock_spawner)
+
+        assert result["BEAKER_DEFAULT_CONTEXT_PAYLOAD"] == (
+            '{"model": "example", "settings": {"temperature": 0.2}}'
+        )
+
     def test_get_env_preserves_parent_env(self, mock_spawner, mock_user):
         """get_env should preserve environment variables from parent."""
         mock_spawner.user = mock_user
@@ -379,6 +398,7 @@ class TestPolicyOverrideEnv:
         spawner.name = "test-session"
         spawner.beaker_context = ""
         spawner.default_beaker_context = "default"
+        spawner.context_config = {}
         spawner.node_env = {}
         spawner.node_policy_overrides = {}
         spawner.policy_override_env_key_suffix = "_secret_policy"

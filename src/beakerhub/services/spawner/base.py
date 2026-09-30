@@ -1,3 +1,4 @@
+import json
 from typing import Any, cast
 from uuid import uuid4
 
@@ -63,6 +64,7 @@ class BeakerSpawner(Spawner):
         user = cast(BeakerhubUser, self.user)
         env.setdefault("JUPYTER_BASE_URL", user.server_url(server_name=self.name))
         env.setdefault("BEAKER_DEFAULT_CONTEXT", self.beaker_context or self.default_beaker_context)
+        env.setdefault("BEAKER_DEFAULT_CONTEXT_PAYLOAD", json.dumps(self.context_config))
         env.setdefault("BEAKERHUB_USER", user.name)
         env.setdefault("BEAKER_UI_HIDE_CONTEXT_SELECTOR", "true")
         env.update(self.node_env)

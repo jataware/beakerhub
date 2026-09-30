@@ -103,7 +103,7 @@ secrets:
 config:
   extraConfig: |
     
-    from beakerhub_crdc_plugin import (
+    from crdc_beakerhub_plugin import (
         get_custom_scopes,
         get_extra_handlers,
         get_service_role,
@@ -111,20 +111,9 @@ config:
     c.BeakerHub.services = [
         {
             "name": "crdc-backend",
-            "api_token": os.environ.get("CRDC_BEAKERHUB_API_TOKEN", "my-token"),
+            "api_token": os.environ.get("CRDC_BEAKERHUB_API_TOKEN", ""),
         },
     ]
     c.BeakerHub.extra_handlers = get_extra_handlers()
     c.BeakerHub.custom_scopes = get_custom_scopes()
     c.BeakerHub.load_roles = [get_service_role("crdc-backend")]
-
-    # c.JupyterHub.api_tokens = {
-    #     os.environ["CRDC_BEAKERHUB_API_TOKEN"]: "crdc",
-    # }
-
-    # c.JupyterHub.load_roles = [{
-    #     "name": "crdc-server-management",
-    #     "description": "Permit CRDC to manage only crdc's servers.",
-    #     "scopes": ["servers!user=crdc"],
-    #     "users": ["crdc"],
-    # }]
