@@ -3,7 +3,7 @@ from pathlib import Path
 
 import traitlets
 from jupyterhub.app import JupyterHub
-from traitlets import Dict, Instance, Type, Unicode, default
+from traitlets import Dict, Instance, Type, Unicode, Union, default
 
 # Import orm tables so that they can be added.
 import beakerhub.orm # type: ignore
@@ -13,6 +13,7 @@ from beakerhub.auth.cognito import  CognitoBotoAuthenticator
 from beakerhub.handlers import get_override_handlers, HierarchicalStaticHandler, VueSPAHandler
 from beakerhub.api_handlers import handlers as api_handlers
 from beakerhub.admin_handlers import admin_handlers
+from beakerhub.lib.extensions import BaseExtension
 from beakerhub.runtimes.base import BaseRuntime, BaseRuntimeBundle
 from beakerhub.runtimes.kubernetes import KubernetesRuntime
 from beakerhub.services.dashboard.base import BaseDashboardService
@@ -38,6 +39,15 @@ class BeakerHub(JupyterHub):
 
     description = "Beakerhub version of: \n" + str(JupyterHub.description)
     example = "Beakerhub version of: \n" + str(JupyterHub.examples)
+
+    extensions = traitlets.List(
+        trait=Union([Instance(BaseExtension), Type(klass=BaseExtension)]),
+        config=True,
+        help=(
+            "Enabled BeakerHub extensions. Values can be BaseExtension instances "
+            "or BaseExtension classes, which are instantiated during startup."
+        ),
+    )
 
     runtime_bundle_class = Type(
         allow_none=True,
@@ -120,6 +130,11 @@ class BeakerHub(JupyterHub):
         "default_handler_class": VueSPAHandler
     }
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for extension in self.extensions:
+            extension.update_config(self.config)
+
     @default("base_url")
     def _default_base_url(self):
         return "/"
@@ -196,6 +211,8 @@ class BeakerHub(JupyterHub):
             self.task_runner.update_config(config)
         if "dashboard_service" in self._trait_values:
             self.dashboard_service.update_config(config)
+        for extension in self.extensions:
+            extension.update_config(config)
 
     @default("config_file")
     def _default_config_file(self):
@@ -221,7 +238,7 @@ class BeakerHub(JupyterHub):
 
     @default("classes")
     def _default_classes(self):
-        return [
+        classes = [
             self.__class__,
             BaseTaskRunnerService,
             KubernetesTaskRunnerService,
@@ -230,6 +247,91 @@ class BeakerHub(JupyterHub):
             KubernetesDashboardService,
             AwsEcsDashboardService,
         ]
+        for extension in self.extensions:
+            if type(extension) not in classes:
+                classes.append(type(extension))
+        return classes
+
+    @traitlets.validate("extensions")
+    def _validate_extensions(self, proposal):
+        """Normalize configured extension classes to application-owned instances."""
+        extensions = []
+        for extension in proposal["value"]:
+            if isinstance(extension, type):
+                extension = extension(parent=self)
+            elif extension.parent is None:
+                extension.parent = self
+            extension.update_config(self.config)
+            extensions.append(extension)
+
+        classes = self._trait_values.get("classes")
+        if classes is not None:
+            classes = list(classes)
+            for extension in extensions:
+                if type(extension) not in classes:
+                    classes.append(type(extension))
+            self.classes = classes
+        return extensions
+
+    def _disable_extension(self, extension: BaseExtension, action: str) -> None:
+        self.log.exception(
+            "Error while trying to %s extension '%s'. Disabling.",
+            action,
+            type(extension).__name__,
+        )
+        if extension in self.extensions:
+            self.extensions.remove(extension)
+
+    def _validate_extension_resources(
+        self, extension: BaseExtension, resource_names: dict[str, set[str]]
+    ) -> dict[str, set[str]]:
+        if extension.parent is not self:
+            raise ValueError("extension is not owned by this BeakerHub instance")
+        extension.validate()
+
+        extension_resources = {
+            "slugs": {extension.slug},
+            "roles": {role["name"] for role in extension.roles},
+            "services": {service["name"] for service in extension.services},
+            "handlers": {handler[0] for handler in extension.handlers},
+        }
+        for resource_type, names in extension_resources.items():
+            duplicates = names.intersection(resource_names[resource_type])
+            if duplicates:
+                resource_type = resource_type[:-1]
+                raise ValueError(
+                    f"duplicate extension {resource_type} name: {sorted(duplicates)!r}"
+                )
+        return extension_resources
+
+    def _prepare_extensions(self) -> None:
+        """Validate extensions and map their tables after Hub database initialization."""
+        resource_names = {
+            "slugs": set(),
+            "roles": {role["name"] for role in self.load_roles},
+            "services": {service["name"] for service in self.services},
+            "handlers": set(),
+        }
+        if self.enable_idle_session_culling:
+            from beakerhub.services.periodic_tasks.idle_culler import (
+                SERVICE_DEFINITION,
+                SERVICE_ROLE,
+            )
+
+            resource_names["roles"].add(SERVICE_ROLE["name"])
+            resource_names["services"].add(SERVICE_DEFINITION["name"])
+        for extension in list(self.extensions):
+            try:
+                extension_resources = self._validate_extension_resources(
+                    extension, resource_names
+                )
+                for table in extension.orm_tables:
+                    table.register(extension)
+                for resource_type, names in extension_resources.items():
+                    resource_names[resource_type].update(names)
+            except Exception:
+                self._disable_extension(extension, "initialize")
+
 
     def init_db(self):
         if self.vault_encryption_key:
@@ -239,7 +341,14 @@ class BeakerHub(JupyterHub):
                 "vault_encryption_key is not set. "
                 "Encrypted secret storage will not be available."
             )
-        return super().init_db()
+        result = super().init_db()
+        self._prepare_extensions()
+        for extension in list(self.extensions):
+            try:
+                extension.create_tables(self.db.get_bind())
+            except Exception:
+                self._disable_extension(extension, "create database tables for")
+        return result
 
     def init_handlers(self):
         """Initialize handlers, including custom Vue SPA handlers."""
@@ -252,10 +361,20 @@ class BeakerHub(JupyterHub):
             + task_handlers
             + dashboard_handlers
         )
+
+        extension_handlers = []
+        for extension in self.extensions:
+            extension_handlers.extend(extension.handlers)
+
         overridden_paths = {handler[0] for handler in override_handlers}
         overridden_paths.add(r'(.*)')  # 404NotFound path
         overridden_paths.update({path for path, *args in self.handlers if path.startswith("/admin")})
-        self.handlers = override_handlers + [handler for handler in self.handlers if handler[0] not in overridden_paths]
+        self.handlers = (
+            override_handlers +
+            extension_handlers +
+            [handler for handler in self.handlers if handler[0] not in overridden_paths]
+        )
+
         self.handlers.append((r'(.*)', VueSPAHandler))
 
     def init_secrets(self):
@@ -263,7 +382,6 @@ class BeakerHub(JupyterHub):
         # an env variable where it will be found.
         os.environ.setdefault("JUPYTERHUB_CRYPT_KEY", self.vault_encryption_key)
         super().init_secrets()
-
 
     async def init_role_creation(self):
         """Register the role that grants the idle culler its permissions.
@@ -274,6 +392,9 @@ class BeakerHub(JupyterHub):
         if self.enable_idle_session_culling:
             from beakerhub.services.periodic_tasks.idle_culler import SERVICE_ROLE
             self.load_roles = [*self.load_roles, SERVICE_ROLE]
+        for extension in self.extensions:
+            self.load_roles.extend(extension.roles)
+            self.custom_scopes.update(extension.scope_definitions())
         await super().init_role_creation()
 
     def init_services(self):
@@ -291,6 +412,8 @@ class BeakerHub(JupyterHub):
                 f"--config={os.path.abspath(self.config_file)}",
             ]
             self.services = [*self.services, service]
+        for extension in self.extensions:
+            self.services.extend(extension.services)
         super().init_services()
 
 
