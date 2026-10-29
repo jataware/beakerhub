@@ -79,15 +79,16 @@ class MyExtension(BaseExtension):
 ## Database tables
 
 `ExtensionTable` defers declarative mapping until Hub startup. BeakerHub maps
-it into the shared ORM metadata and names its physical table as:
+it into metadata owned by the extension and names its physical table as:
 
 ```
 beakerhub_ext_<slug>__<tablename>
 ```
 
 BeakerHub creates missing initial tables during startup, including when an
-extension is added to an existing database. It does not detect, repair, or
-migrate incompatible existing schemas.
+extension is added to an existing database. String foreign keys to Hub or other
+extensions' tables do not resolve automatically across metadata boundaries.
+BeakerHub does not detect, repair, or migrate incompatible existing schemas.
 
 `orm_migration_path` is reserved for future project-wide migration support. It
 is intentionally inactive. Until migration support exists, repair extension
