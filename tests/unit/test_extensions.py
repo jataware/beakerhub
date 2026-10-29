@@ -118,6 +118,63 @@ def test_prepare_extensions_disables_idle_culler_resource_collisions():
     assert service_app.extensions == []
 
 
+def test_failed_extension_does_not_remove_existing_resource_reservations():
+    class Collision(BaseExtension):
+        slug = "collision"
+        roles = [{"name": "existing-role"}]
+
+    class LaterCollision(BaseExtension):
+        slug = "later-collision"
+        roles = [{"name": "existing-role"}]
+
+    app = BeakerHub(
+        extensions=[Collision, LaterCollision],
+        load_roles=[{"name": "existing-role"}],
+        enable_idle_session_culling=False,
+    )
+
+    app._prepare_extensions()
+
+    assert app.extensions == []
+
+
+def test_invalid_resource_does_not_prevent_disabling_extension():
+    class InvalidRole(BaseExtension):
+        slug = "invalid-role"
+        roles = [{}]
+
+    app = BeakerHub(extensions=[InvalidRole], enable_idle_session_culling=False)
+
+    app._prepare_extensions()
+
+    assert app.extensions == []
+
+
+def test_mapping_failure_does_not_reserve_resource_names():
+    class BrokenTable(ExtensionTable):
+        __tablename__ = "broken"
+        value = Column(String)
+
+    class BrokenExtension(BaseExtension):
+        slug = "broken-extension"
+        roles = [{"name": "shared-role"}]
+        orm_tables = [BrokenTable]
+
+    class ValidExtension(BaseExtension):
+        slug = "valid-extension"
+        roles = [{"name": "shared-role"}]
+
+    app = BeakerHub(
+        extensions=[BrokenExtension, ValidExtension],
+        enable_idle_session_culling=False,
+    )
+
+    app._prepare_extensions()
+
+    assert len(app.extensions) == 1
+    assert isinstance(app.extensions[0], ValidExtension)
+
+
 def test_extension_validation_requires_reserved_handler_namespace():
     app = BeakerHub(extensions=[InvalidRouteExtension])
     try:
@@ -180,12 +237,13 @@ def test_init_db_creates_extension_tables(monkeypatch):
     assert "beakerhub_ext_example__records" in inspect(engine).get_table_names()
 
 
-def test_extension_table_uses_shared_metadata_and_is_created():
+def test_extension_table_uses_separate_metadata_and_is_created():
     extension = ExampleExtension()
     ExampleTable.register(extension)
 
     assert ExampleTable.__tablename__ == "beakerhub_ext_example__records"
-    assert ExampleTable.__table__.metadata is Base.metadata
+    assert ExampleTable.__table__.metadata is extension._orm_base.metadata
+    assert ExampleTable.__table__.metadata is not Base.metadata
 
     engine = create_engine("sqlite://")
     ExampleTable.__table__.create(engine)

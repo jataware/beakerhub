@@ -284,7 +284,7 @@ class BeakerHub(JupyterHub):
 
     def _validate_extension_resources(
         self, extension: BaseExtension, resource_names: dict[str, set[str]]
-    ) -> None:
+    ) -> dict[str, set[str]]:
         if extension.parent is not self:
             raise ValueError("extension is not owned by this BeakerHub instance")
         extension.validate()
@@ -302,10 +302,10 @@ class BeakerHub(JupyterHub):
                 raise ValueError(
                     f"duplicate extension {resource_type} name: {sorted(duplicates)!r}"
                 )
-            resource_names[resource_type].update(names)
+        return extension_resources
 
     def _prepare_extensions(self) -> None:
-        """Validate extensions and map their tables before database initialization."""
+        """Validate extensions and map their tables after Hub database initialization."""
         resource_names = {
             "slugs": set(),
             "roles": {role["name"] for role in self.load_roles},
@@ -322,11 +322,16 @@ class BeakerHub(JupyterHub):
             resource_names["services"].add(SERVICE_DEFINITION["name"])
         for extension in list(self.extensions):
             try:
-                self._validate_extension_resources(extension, resource_names)
+                extension_resources = self._validate_extension_resources(
+                    extension, resource_names
+                )
                 for table in extension.orm_tables:
                     table.register(extension)
+                for resource_type, names in extension_resources.items():
+                    resource_names[resource_type].update(names)
             except Exception:
                 self._disable_extension(extension, "initialize")
+
 
     def init_db(self):
         if self.vault_encryption_key:
@@ -336,12 +341,11 @@ class BeakerHub(JupyterHub):
                 "vault_encryption_key is not set. "
                 "Encrypted secret storage will not be available."
             )
-        self._prepare_extensions()
         result = super().init_db()
+        self._prepare_extensions()
         for extension in list(self.extensions):
             try:
-                for table in extension.orm_tables:
-                    table.__table__.create(self.db.get_bind(), checkfirst=True)
+                extension.create_tables(self.db.get_bind())
             except Exception:
                 self._disable_extension(extension, "create database tables for")
         return result
@@ -357,13 +361,19 @@ class BeakerHub(JupyterHub):
             + task_handlers
             + dashboard_handlers
         )
+
+        extension_handlers = []
+        for extension in self.extensions:
+            extension_handlers.extend(extension.handlers)
+
         overridden_paths = {handler[0] for handler in override_handlers}
         overridden_paths.add(r'(.*)')  # 404NotFound path
         overridden_paths.update({path for path, *args in self.handlers if path.startswith("/admin")})
-        self.handlers = override_handlers + [handler for handler in self.handlers if handler[0] not in overridden_paths]
-
-        for extension in self.extensions:
-            self.handlers.extend(extension.handlers)
+        self.handlers = (
+            override_handlers +
+            extension_handlers +
+            [handler for handler in self.handlers if handler[0] not in overridden_paths]
+        )
 
         self.handlers.append((r'(.*)', VueSPAHandler))
 

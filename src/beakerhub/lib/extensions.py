@@ -1,6 +1,7 @@
 import re
 from typing import TYPE_CHECKING, ClassVar
 
+from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase, DeclarativeBaseNoMeta, registry as Registry
 from traitlets.config import LoggingConfigurable
 
@@ -22,12 +23,12 @@ class ExtensionTable(DeclarativeBaseNoMeta):
 
     def __init_subclass__(cls, **kwargs: object):
         # Do not call super() to defer registering the model until its extension
-        # has supplied the shared BeakerHub metadata and table namespace.
+        # has supplied its metadata and table namespace.
         pass
 
     @classmethod
     def register(cls, extension: "BaseExtension") -> None:
-        """Map this model into BeakerHub's shared ORM metadata."""
+        """Map this model into the extension's ORM metadata."""
         if cls._mapped:
             return
 
@@ -37,8 +38,7 @@ class ExtensionTable(DeclarativeBaseNoMeta):
         cls._extension_original_tablename = original_tablename
         cls.__tablename__ = f"beakerhub_ext_{extension.slug}__{original_tablename}"
 
-        # DeclarativeBaseNoMeta provides independent metadata. Explicitly replace
-        # it before mapping so extension tables participate in Base.metadata.
+        # Use the extension's metadata instead of the model base's metadata.
         cls.metadata = extension._orm_base.metadata
         extension._orm_base.registry.map_declaratively(cls)
         cls._mapped = True
@@ -59,11 +59,17 @@ class BaseExtension(LoggingConfigurable):
 
     def __init_subclass__(cls, **kwargs: object):
         from beakerhub.orm import Base
+        base_metadata: MetaData = Base.metadata
+        metadata = MetaData(
+            schema=base_metadata.schema,
+            naming_convention=base_metadata.naming_convention,
+            info=base_metadata.info,
+        )
 
         registry_base = type(
             f"{cls.__name__}OrmBase",
             (DeclarativeBase,),
-            {"registry": Registry(metadata=Base.metadata)},
+            {"registry": Registry(metadata=metadata)},
         )
         cls._orm_base = registry_base
         return super().__init_subclass__(**kwargs)
@@ -151,6 +157,13 @@ class BaseExtension(LoggingConfigurable):
                 raise TypeError("extension ORM tables must inherit ExtensionTable")
             if not isinstance(getattr(table, "__tablename__", None), str):
                 raise TypeError("extension ORM tables must define __tablename__")
+
+    def create_tables(self, bind) -> None:
+        self._orm_base.metadata.create_all(bind=bind)
+
+    def remove_tables(self, *tables, bind=None) -> None:
+        tables = tables or None
+        self._orm_base.metadata.drop_all(bind=bind, tables=tables)
 
     def teardown(self) -> None:
         """Remove resources registered in application configuration.
