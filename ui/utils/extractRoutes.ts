@@ -1,3 +1,5 @@
+import createRouter from './src/router';
+
 const fs = require('fs');
 const path = require('path');
 
@@ -11,7 +13,6 @@ if ( globalThis.window === undefined ) {
     globalThis.document = dom.window.document;
 }
 
-const createRouter = (await import('./src/router'))?.default;
 const router = createRouter({});
 const routes = router.getRoutes();
 

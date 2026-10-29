@@ -5,7 +5,6 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import vueJsx from '@vitejs/plugin-vue-jsx';
 import vueDevTools from 'vite-plugin-vue-devtools';
-import topLevelAwait from 'vite-plugin-top-level-await';
 
 
 // const beakerKernelProxyConfig = {

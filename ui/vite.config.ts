@@ -5,7 +5,6 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import vueJsx from '@vitejs/plugin-vue-jsx';
 import vueDevTools from 'vite-plugin-vue-devtools';
-import topLevelAwait from 'vite-plugin-top-level-await';
 
 
 const BeakerhubProxy = process.env.BEAKERHUB_URL || 'http://localhost:8000';
@@ -33,7 +32,6 @@ export default defineConfig({
     vue(),
     vueJsx(),
     vueDevTools(),
-    topLevelAwait(),
     {
       name: "sanitize-eval",
       transform(src, id) {
