@@ -125,7 +125,7 @@ class BeakerHub(JupyterHub):
         return "/"
 
     @default("hub_prefix")
-    def _default_hub_prefix(self):
+    def _hub_prefix_default(self):
         return self.base_url
 
     @default("authenticator_class")
@@ -246,12 +246,13 @@ class BeakerHub(JupyterHub):
         super().init_handlers()
 
         override_handlers = (
-            get_override_handlers(self.base_url, self.beaker_static_path)
+            get_override_handlers(self.beaker_static_path)
             + api_handlers
             + admin_handlers
             + task_handlers
             + dashboard_handlers
         )
+        override_handlers = self.add_url_prefix(self.hub_prefix, override_handlers)
         overridden_paths = {handler[0] for handler in override_handlers}
         overridden_paths.add(r'(.*)')  # 404NotFound path
         overridden_paths.update({path for path, *args in self.handlers if path.startswith("/admin")})

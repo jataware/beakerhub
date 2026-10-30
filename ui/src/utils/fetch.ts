@@ -2,8 +2,14 @@ import { URLExt } from '@jupyterlab/coreutils';
 
 type DefaultHeaders = Record<string, HeadersInit>;
 
+interface RequestInitWithBase extends RequestInit {
+  baseUrl?: string;
+  skipBase?: boolean;
+};
+
 class FetchClient {
   private defaultHeaders: DefaultHeaders;
+  private baseUrl: string = '/';
 
   constructor(defaultHeaders: DefaultHeaders = {}) {
     this.defaultHeaders = defaultHeaders;
@@ -39,6 +45,10 @@ class FetchClient {
 
   }
 
+  setBaseUrl(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
   private headersForUrl(url) {
     const absUrl = URLExt.parse(url).href;
     const defaultHeaders = this.defaultHeaders;
@@ -53,17 +63,22 @@ class FetchClient {
     return headers;
   }
 
-  async fetch(url: string, options?: RequestInit): Promise<Response> {
+  async fetch(url: string, options?: RequestInitWithBase): Promise<Response> {
+    const {baseUrl, skipBase, ...requestOptions} = options || {};
     const headers = this.headersForUrl(url);
+    const prefixedUrl = URLExt.parse(url);
+    if (!skipBase) {
+      const prefix = baseUrl || this.baseUrl;
+      prefixedUrl.pathname = URLExt.join(prefix, prefixedUrl.pathname);
+    }
 
-    const promise = fetch(url, {
-      ...options,
+    const promise = fetch(prefixedUrl.href, {
+      ...requestOptions,
       headers: {
         ...headers,
-        ...options?.headers,
+        ...requestOptions.headers,
       },
     });
-
 
     promise.then((response) => {
       if (response.headers.has("X-SET-XSRFToken")) {

@@ -105,7 +105,7 @@ const onMessage = (data: string) => {
 }
 
 const streamEvents = async (url: string, onMessage: (data: string) => void) => {
-  const serverProgress = await fetch(url);
+  const serverProgress = await fetch(url, {skipBase: true});
   const reader = serverProgress.body!.getReader();
   const decoder = new TextDecoder();
   let buffer = '';

@@ -152,7 +152,7 @@
             <div class="video-container">
               <video ref="demoVideo" class="demo-video" :class="{ 'playing': videoPlaying }" preload="metadata"
                 @click="toggleVideo" @ended="handleVideoEnded">
-                <source src="/videos/beaker_demo.mp4" type="video/mp4">
+                <source :src="`${baseUrl}videos/beaker_demo.mp4`" type="video/mp4">
                 Your browser does not support the video tag.
               </video>
               <div v-if="!videoPlaying" class="video-placeholder" @click="playVideo">
@@ -211,6 +211,7 @@
 </template>
 
 <script setup lang="ts">
+const baseUrl = import.meta.env.BASE_URL;
 import { ref, onMounted } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';

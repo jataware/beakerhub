@@ -59,6 +59,10 @@ spec:
         - name: VITE_HMR_PORT
           value: {{ .Values.dev.viteServer.hmr.port | quote }}
         {{- end }}
+        {{- if .Values.hub.baseUrl }}
+        - name: BASE_URL
+          value: {{ .Values.hub.baseUrl | quote }}
+        {{- end }}
       volumes:
       - name: ui-source
         hostPath:

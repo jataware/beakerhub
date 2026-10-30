@@ -8,9 +8,16 @@ import vueDevTools from 'vite-plugin-vue-devtools';
 
 
 const BeakerhubProxy = process.env.BEAKERHUB_URL || 'http://localhost:8000';
+const baseUrl = process.env.BASE_URL || '/';
+const proxies = {
+  [`${baseUrl}api`]: BeakerhubProxy, 
+  [`${baseUrl}session`]: BeakerhubProxy, 
+  [`${baseUrl}health`]: BeakerhubProxy,
+};
 
 // https://vite.dev/config/
 export default defineConfig({
+  base: baseUrl,
   define: {
     global: 'globalThis',
   },
@@ -19,14 +26,7 @@ export default defineConfig({
     port: 8080,
     allowedHosts: ["localhost", ".localhost", ".beakerhub.internal"],
 
-    proxy: {
-      // Routes to BeakerHub service (port 8000) - auth, login, and context metadata
-      // BeakerHub now serves from root (/) by default
-      '/api': BeakerhubProxy,
-      '/session': BeakerhubProxy,
-      '/health': BeakerhubProxy,
-
-    },
+    proxy: proxies,
   },
   plugins: [
     vue(),

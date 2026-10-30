@@ -14,6 +14,12 @@ HandlerTuple = (
 
 
 class OverrideHandlerProvider(Protocol):
-    """Protocol for get_override_handlers functions in handlers.py and api_handlers.py."""
+    """Protocol for the API get_override_handlers function."""
 
     def __call__(self, base_url: str = '/', ui_path: str = "./ui") -> list[HandlerTuple]: ...
+
+
+class SPAHandlerProvider(Protocol):
+    """Protocol for the SPA get_override_handlers function."""
+
+    def __call__(self, ui_path: str = "./ui") -> list[HandlerTuple]: ...

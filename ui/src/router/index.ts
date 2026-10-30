@@ -255,15 +255,8 @@ const routes: RouteRecordRaw[] = [
 ]
 
 export const createRouter = (config) => {
-  if (config.pathPrefix) {
-    const prefix = (<string>config.pathPrefix).split('/').filter((obj) => Boolean(obj));
-    routes.forEach((route) => {
-      const path = [...prefix, ...route.path.split('/')].filter((part) => part);
-      route.path = "/" + path.join("/");
-    })
-  }
   const router = vueCreateRouter({
-    history: createWebHistory(import.meta.env?.BASE_URL),
+    history: createWebHistory(config.pathPrefix || import.meta.env.BASE_URL),
     routes: routes,
   });
   router.beforeEach(requiresAuth);

@@ -30,7 +30,7 @@ export const defaultFooterConfig: FooterConfig = {
 };
 
 export const defaultSiteConfig: SiteConfig = {
-  pathPrefix: '/',
+  pathPrefix: import.meta.env.BASE_URL || '/',
   username: null,
   footer: defaultFooterConfig,
 };

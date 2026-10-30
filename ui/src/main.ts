@@ -18,12 +18,14 @@ import 'primeicons/primeicons.css';
 import createRouter from './router';
 import { resolveSiteConfig, siteConfigKey, type SiteConfig } from './siteConfig';
 import './index.scss';
+import { client } from '@/utils/fetch';
 
 const siteConfigElement = document.getElementById('site-config');
 const configuredSiteConfig: Partial<SiteConfig> = siteConfigElement
   ? JSON.parse(siteConfigElement.textContent ?? '{}')
   : {};
 const siteConfig = resolveSiteConfig(configuredSiteConfig);
+client.setBaseUrl(siteConfig.pathPrefix);
 
 const app = createApp(App);
 const router = createRouter(siteConfig);

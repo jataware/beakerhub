@@ -59,11 +59,14 @@ class VueSPAHandler(BaseHandler):
             '_xsrf': self.xsrf_token.decode(),
             'footer': get_footer_config(self.app),
         }
+        asset_prefix = f"{self.hub.base_url.rstrip('/')}/beakerhub/"
 
         # Replace the Jinja2 placeholder with actual JSON
         # The index.html has: <script id="site-config" type="application/json">{{ siteConfig }}</script>
         config_json = json.dumps(config).replace("</", "<\\/")
         # html = html.replace('{{ siteConfig }}', config_json)
+
+        html = html.replace('="/beakerhub/', f'="{asset_prefix}')
         html = html.replace("</head>", f'<script id="site-config" type="application/json">{config_json}</script>\n</head>')
 
         self.set_header('Content-Type', 'text/html')
@@ -97,21 +100,21 @@ class HierarchicalStaticHandler(static.CacheControlStaticFilesHandler):
         return await super().get(path, include_body)
 
 
-def get_override_handlers(base_url: str = '/', ui_path: str = "./ui") -> list[HandlerTuple]:
+def get_override_handlers(ui_path: str = "./ui") -> list[HandlerTuple]:
     """
     Return list of extra handlers to register with JupyterHub, overriding any existing rules with identical match strings.
 
     Args:
-        base_url: The hub's base URL (default: '/' for root deployment)
-                  Can be overridden to '/hub/' or other prefix in config
+        ui_path: Path to ui files (can be relative or absolute). Used to build page regex
 
     Returns:
         List of (route_pattern, handler_class) tuples
     """
 
     handlers = [
-        (rf"{base_url}", VueSPAHandler),
-        (rf"{base_url}(beakerhub/static/.*)", web.StaticFileHandler, {"path": ui_path}),
+        (rf"/", VueSPAHandler),
+        (rf"/(beakerhub/static/.*)", web.StaticFileHandler, {"path": ui_path}),
+        (r"/(favicon\.ico|videos/.*)", web.StaticFileHandler, {"path": ui_path}),
         (r'/api/auth/login', LoginHandler),
         (r'/api/auth/logout', LogoutHandler),
     ]
@@ -122,7 +125,7 @@ def get_override_handlers(base_url: str = '/', ui_path: str = "./ui") -> list[Ha
             routes  = json.load(route_file)
         if isinstance(routes, dict):
             route_options = list(routes.keys())
-        route_regex = rf'{base_url}({"|".join(opt.strip("/") for opt in route_options if opt.strip("/"))})/?'
+        route_regex = rf'/({"|".join(opt.strip("/") for opt in route_options if opt.strip("/"))})/?'
         handlers.append((route_regex, VueSPAHandler))
 
     return handlers
