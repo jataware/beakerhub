@@ -25,27 +25,21 @@ class TestBeakerSpawner:
                 # proxy_spec should be set to name.domain
                 assert spawner.proxy_spec == "my-session.example.com/"
 
-    def test_init_does_not_set_proxy_spec_without_domain(self):
-        """__init__ should not set proxy_spec when domain is not provided."""
-        with patch.object(BeakerSpawner.__bases__[0], "__init__", return_value=None):
+    @pytest.mark.parametrize("domain", [None, ""])
+    def test_init_sets_path_proxy_spec_without_domain(self, domain):
+        user = MagicMock()
+        user.server_url.return_value = "/session/test/"
+        def init(spawner, **kwargs):
+            spawner.user = user
+
+        with patch.object(BeakerSpawner.__bases__[0], "__init__", init):
             with patch.object(
                 BeakerSpawner, "name", new_callable=PropertyMock, return_value="test"
             ):
-                spawner = BeakerSpawner()
+                spawner = BeakerSpawner(domain=domain)
 
-                # proxy_spec should not be set when domain not provided
-                assert not hasattr(spawner, "proxy_spec") or spawner.proxy_spec == ""
-
-    def test_init_does_not_set_proxy_spec_with_empty_domain(self):
-        """__init__ should not set proxy_spec when domain is empty string."""
-        with patch.object(BeakerSpawner.__bases__[0], "__init__", return_value=None):
-            with patch.object(
-                BeakerSpawner, "name", new_callable=PropertyMock, return_value="test"
-            ):
-                spawner = BeakerSpawner(domain="")
-
-                # proxy_spec should not be set when domain is empty
-                assert not hasattr(spawner, "proxy_spec") or spawner.proxy_spec == ""
+        assert spawner.proxy_spec == "/session/test/"
+        user.server_url.assert_called_once_with(server_name="test")
 
     def test_session_id_returns_name_when_set(self):
         """session_id property should return name when it's already set."""

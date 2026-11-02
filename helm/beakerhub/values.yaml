@@ -13,6 +13,9 @@ proxy:
   apiServiceName: beakerhub-proxy-api
   apiPort: 8001
 
+  # Use host-based routing for notebook subdomains; set false for path routing.
+  hostRouting: true
+
   image:
     repository: beakerhub/proxy
     tag: latest
@@ -120,6 +123,10 @@ hub:
 
   # Base URL for JupyterHub (usually '/')
   baseUrl: /
+
+  # Public browser origin, including scheme and optional port. When empty,
+  # derive it from ingress.sslEnabled and ingress.hosts.proxy.
+  publicOrigin: ""
 
   # Path to UI dist files (mounted in container)
   staticPath: /ui

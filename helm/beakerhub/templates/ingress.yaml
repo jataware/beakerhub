@@ -36,6 +36,7 @@ spec:
             name: {{ .Values.proxy.serviceName }}
             port:
               number: {{ .Values.proxy.service.port }}
+  {{- if .Values.proxy.hostRouting }}
   - host: "*.{{ .Values.ingress.hosts.proxy }}"
     http:
       paths:
@@ -46,6 +47,7 @@ spec:
             name: {{ .Values.proxy.serviceName }}
             port:
               number: {{ .Values.proxy.service.port }}
+  {{- end }}
 
 {{- if .Values.dev.viteServer.enabled }}
 ---

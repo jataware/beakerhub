@@ -17,7 +17,11 @@ c.BeakerHub.base_url = {{ .Values.hub.baseUrl | quote }}
 c.BeakerHub.hub_bind_url = "http://0.0.0.0:8888/"
 c.BeakerHub.hub_connect_url = {{ printf "http://%s.%s.svc.cluster.local:8888/" .Values.hub.serviceName .Values.namespace | quote }}
 c.BeakerHub.hub_port = {{ .Values.hub.service.port }}
-c.BeakerHub.subdomain_host = {{ print ( ternary "https://" "http://" .Values.ingress.sslEnabled ) .Values.ingress.hosts.proxy | quote }}
+{{- if .Values.proxy.hostRouting }}
+c.BeakerHub.subdomain_host = {{ .Values.hub.publicOrigin | default (print (ternary "https://" "http://" .Values.ingress.sslEnabled) .Values.ingress.hosts.proxy) | quote }}
+{{- else }}
+c.BeakerHub.subdomain_host = ""
+{{- end }}
 c.BeakerHub.cleanup_servers = False
 c.BeakerHub.footer = {{ .Values.hub.footer | toJson }}
 

@@ -1,4 +1,5 @@
 from typing import Any, cast
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 from jupyterhub.spawner import Spawner
@@ -35,6 +36,8 @@ class BeakerSpawner(Spawner):
         super().__init__(**kwargs)
         if domain:
             self.proxy_spec = f"{self.name}.{domain}/"
+        else:
+            self.proxy_spec = self.user.server_url(server_name=self.name)
 
     @property
     def name(self) -> str:
@@ -61,7 +64,10 @@ class BeakerSpawner(Spawner):
     def _extend_env(self, env: dict[str, str]) -> dict[str, str]:
         """Add BeakerHub-specific values to a runtime environment."""
         user = cast(BeakerhubUser, self.user)
-        env.setdefault("JUPYTER_BASE_URL", user.server_url(server_name=self.name))
+        server_url = user.server_url(server_name=self.name)
+        env.setdefault("JUPYTER_BASE_URL", urlsplit(server_url).path or "/")
+        env["JUPYTERHUB_OAUTH_CALLBACK_URL"] = f"{server_url.rstrip('/')}/oauth_callback"
+        env.setdefault("BEAKER_SERVER_PREFIX", urlsplit(server_url).path or "/")
         env.setdefault("BEAKER_DEFAULT_CONTEXT", self.beaker_context or self.default_beaker_context)
         env.setdefault("BEAKERHUB_USER", user.name)
         env.setdefault("BEAKER_UI_HIDE_CONTEXT_SELECTOR", "true")

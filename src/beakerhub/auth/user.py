@@ -41,7 +41,9 @@ class BeakerhubUser(User):
         # Add extra values available now to kwargs so we can use them later when they would otherwise not be
         # avaialable.
         kwargs.setdefault("subdomain_host", self.settings.get("subdomain_host", None))
-        kwargs.setdefault("domain", self.settings.get("domain", None))
+        kwargs.setdefault(
+            "domain", self.settings.get("domain") if self.settings.get("subdomain_host") else None
+        )
         return super()._new_spawner(server_name, spawner_class, **kwargs)
 
     def get_spawner(self, server_name="", replace_failed=False):
@@ -74,7 +76,7 @@ class BeakerhubUser(User):
                 h = f"{h}:{parsed.port}"
             return h
         else:
-            return super().server_url(server_name=server_name)
+            return url_path_join(self.base_url, 'session', url_escape_path(server_name), '/')
 
     @property
     def running(self):
@@ -108,7 +110,7 @@ class BeakerhubUser(User):
         if handler:
             await self.refresh_auth(handler)
 
-        base_url = "/"
+        base_url = urlparse(self.server_url(server_name)).path or "/"
 
         orm_server = orm.Server(base_url=base_url)
         db.add(orm_server)

@@ -11,7 +11,7 @@ const BeakerhubProxy = process.env.BEAKERHUB_URL || 'http://localhost:8000';
 const baseUrl = process.env.BASE_URL || '/';
 const proxies = {
   [`${baseUrl}api`]: BeakerhubProxy, 
-  [`${baseUrl}session`]: BeakerhubProxy, 
+  [`${baseUrl}session`]: { target: BeakerhubProxy, ws: true },
   [`${baseUrl}health`]: BeakerhubProxy,
 };
 

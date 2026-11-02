@@ -76,6 +76,7 @@ The sections below identify the settings most deployments must review.
 
 | Value | Description | Default |
 | --- | --- | --- |
+| `proxy.hostRouting` | Route notebook sessions by subdomain instead of path | `true` |
 | `proxy.image.repository` | Proxy image repository | `beakerhub/proxy` |
 | `proxy.image.tag` | Proxy image tag | `latest` |
 | `proxy.service.type` | Public proxy service type | `LoadBalancer` |
@@ -94,6 +95,7 @@ required for a generic deployment.
 | `hub.image.repository` | Server image repository | `beakerhub/server` |
 | `hub.image.tag` | Server image tag | `latest` |
 | `hub.baseUrl` | JupyterHub base URL | `/` |
+| `hub.publicOrigin` | Public browser origin, including scheme and optional port; defaults to the ingress scheme and proxy host | `""` |
 | `hub.logLevel` | Server log level | `INFO` |
 | `hub.serviceAccount.create` | Create the service account used by the hub pod | `true` |
 | `hub.serviceAccount.name` | Service account used by the hub pod | `beakerhub-hub` |
@@ -105,7 +107,8 @@ required for a generic deployment.
 | `hub.extraVolumeMounts` | Additional server mounts | `[]` |
 
 Startup, readiness, and liveness probes are configured under
-`hub.healthcheck`.
+`hub.healthcheck`. The default `/hub/health` paths are prefixed with
+`hub.baseUrl`; custom probe paths are used as specified.
 
 The UI footer is configured at runtime, so the same server image can use
 deployment-specific branding and links:
@@ -242,8 +245,22 @@ ingress:
         - "*.hub.example.org"
 ```
 
-Notebook sessions use subdomains. The certificate and DNS configuration must
-cover the required notebook hostnames.
+By default, notebook sessions use subdomains. The certificate and DNS
+configuration must cover the required notebook hostnames. For path-based
+routing, configure both the proxy and hub together:
+
+```yaml
+proxy:
+  hostRouting: false
+hub:
+  baseUrl: /beaker/
+  # Set this when the public origin differs from the ingress host or scheme.
+  publicOrigin: https://hub.example.org
+```
+
+The ingress or external load balancer must forward the `/beaker/` prefix
+without stripping it. Set `hub.publicOrigin` to the actual browser origin for
+notebook iframe and WebSocket origin checks.
 
 ### Idle culling
 
