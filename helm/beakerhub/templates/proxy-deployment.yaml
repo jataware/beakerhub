@@ -42,7 +42,9 @@ spec:
           - {{ .Values.proxy.apiPort | quote }}
           - --default-target
           - {{ printf "http://%s.%s.svc.cluster.local:%d" .Values.hub.serviceName .Values.namespace (.Values.hub.service.port | int) | quote }}
+          {{- if .Values.proxy.hostRouting }}
           - --host-routing
+          {{- end }}
           - --insecure
           - --log-level
           - debug

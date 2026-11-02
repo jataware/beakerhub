@@ -73,6 +73,22 @@ class TestBeakerhubUser:
 
             assert user.base_url == "/session"
 
+    @pytest.mark.parametrize("base_url,expected", [
+        ("/", "/session/my-session/"),
+        ("/prefix/", "/prefix/session/my-session/"),
+    ])
+    def test_server_url_uses_session_path(self, base_url, expected):
+        user = BeakerhubUser.__new__(BeakerhubUser)
+        user.settings = {}
+        user.base_url = base_url
+        assert user.server_url("my-session") == expected
+
+    def test_server_url_uses_subdomain(self):
+        user = BeakerhubUser.__new__(BeakerhubUser)
+        user.settings = {"subdomain_host": "https://example.org:8443"}
+        user.base_url = "/"
+        assert user.server_url("my-session") == "https://my-session.example.org:8443"
+
     def test_running_property_true_when_spawner_ready(self):
         """running should be True when any spawner is ready."""
         with patch.object(BeakerhubUser, "__init__", lambda self, *args, **kwargs: None):

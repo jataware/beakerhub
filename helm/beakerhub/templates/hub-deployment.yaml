@@ -68,7 +68,7 @@ spec:
         {{- if .Values.hub.healthcheck.enabled }}
         startupProbe:
           httpGet:
-            path: {{ .Values.hub.healthcheck.startup.path }}
+            path: {{ if eq .Values.hub.healthcheck.startup.path "/hub/health" }}{{ printf "%s/hub/health" (trimSuffix "/" .Values.hub.baseUrl) }}{{ else }}{{ .Values.hub.healthcheck.startup.path }}{{ end }}
             port: http
           periodSeconds: {{ .Values.hub.healthcheck.startup.periodSeconds }}
           timeoutSeconds: {{ .Values.hub.healthcheck.startup.timeoutSeconds }}
@@ -79,14 +79,14 @@ spec:
           # the pod is Ready — so a proxy-based probe would deadlock on cold start and
           # under the Recreate strategy.
           httpGet:
-            path: {{ .Values.hub.healthcheck.readiness.path }}
+            path: {{ if eq .Values.hub.healthcheck.readiness.path "/hub/health" }}{{ printf "%s/hub/health" (trimSuffix "/" .Values.hub.baseUrl) }}{{ else }}{{ .Values.hub.healthcheck.readiness.path }}{{ end }}
             port: http
           periodSeconds: {{ .Values.hub.healthcheck.readiness.periodSeconds }}
           timeoutSeconds: {{ .Values.hub.healthcheck.readiness.timeoutSeconds }}
           failureThreshold: {{ .Values.hub.healthcheck.readiness.failureThreshold }}
         livenessProbe:
           httpGet:
-            path: {{ .Values.hub.healthcheck.liveness.path }}
+            path: {{ if eq .Values.hub.healthcheck.liveness.path "/hub/health" }}{{ printf "%s/hub/health" (trimSuffix "/" .Values.hub.baseUrl) }}{{ else }}{{ .Values.hub.healthcheck.liveness.path }}{{ end }}
             port: http
           periodSeconds: {{ .Values.hub.healthcheck.liveness.periodSeconds }}
           timeoutSeconds: {{ .Values.hub.healthcheck.liveness.timeoutSeconds }}

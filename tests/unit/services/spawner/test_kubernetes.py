@@ -110,7 +110,21 @@ class TestBeakerKubeSpawner:
 
         assert "JUPYTER_BASE_URL" in result
         assert result["JUPYTER_BASE_URL"] == "/user/testuser/test-session/"
+        assert result["BEAKER_SERVER_PREFIX"] == "/user/testuser/test-session/"
         mock_user.server_url.assert_called_once_with(server_name="test-session")
+
+    def test_get_env_uses_url_path_for_subdomain(self, mock_spawner, mock_user):
+        mock_spawner.user = mock_user
+        mock_user.server_url.return_value = "https://session.example.org"
+
+        with patch.object(
+            BeakerKubeSpawner.__bases__[0], "get_env", return_value={}
+        ):
+            result = BeakerKubeSpawner.get_env(mock_spawner)
+
+        assert result["JUPYTER_BASE_URL"] == "/"
+        assert result["JUPYTERHUB_OAUTH_CALLBACK_URL"] == "https://session.example.org/oauth_callback"
+        assert result["BEAKER_SERVER_PREFIX"] == "/"
 
     def test_get_env_includes_beaker_default_context(self, mock_spawner, mock_user):
         """get_env should include BEAKER_DEFAULT_CONTEXT."""

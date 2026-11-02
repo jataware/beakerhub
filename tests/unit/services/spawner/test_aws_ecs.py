@@ -476,7 +476,10 @@ async def test_poll_reports_stopped_when_no_session_task_was_started():
 
 def test_state_round_trip_restores_the_session_task_arn():
     shared_runtime = runtime()
-    user = SimpleNamespace(settings={"app": SimpleNamespace(runtime=shared_runtime)})
+    user = SimpleNamespace(
+        settings={"app": SimpleNamespace(runtime=shared_runtime)},
+        server_url=lambda server_name: f"/session/{server_name}/",
+    )
     source = BeakerAwsECSSpawner(
         user=user,
         task_definition="beaker-notebook:3",
@@ -543,6 +546,7 @@ def test_default_runtime_uses_the_application_runtime():
     user = SimpleNamespace(
         id=1,
         settings={"app": SimpleNamespace(runtime=shared_runtime)},
+        server_url=lambda server_name: f"/session/{server_name}/",
     )
 
     spawner = BeakerAwsECSSpawner(

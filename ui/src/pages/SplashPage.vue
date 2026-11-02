@@ -152,7 +152,7 @@
             <div class="video-container">
               <video ref="demoVideo" class="demo-video" :class="{ 'playing': videoPlaying }" preload="metadata"
                 @click="toggleVideo" @ended="handleVideoEnded">
-                <source src="/videos/beaker_demo.mp4" type="video/mp4">
+                <source :src="`${baseUrl}videos/beaker_demo.mp4`" type="video/mp4">
                 Your browser does not support the video tag.
               </video>
               <div v-if="!videoPlaying" class="video-placeholder" @click="playVideo">
@@ -219,8 +219,11 @@ import { Teleport } from 'vue';
 import HeroSVGBackground from '@/components/splash/HeroSVGBackground.vue';
 import DomainsCarousel from '@/components/DomainsCarousel.vue';
 import BeakerHubLogo from '@/components/BeakerHubLogo.vue';
+import { client } from '@/utils/fetch';
 
 
+
+const baseUrl = client.baseUrl || import.meta.env.BASE_URL;
 const isDarkMode = ref(false);
 const demoVideo = ref<HTMLVideoElement | null>(null);
 const videoPlaying = ref(false);

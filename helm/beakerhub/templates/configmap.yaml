@@ -26,14 +26,18 @@ data:
     # Beaker Notebook Service Configuration File
     # ===========================================
 
+    import re
+
     c = get_config()  # noqa # type: ignore
+    hub_origin = {{ .Values.hub.publicOrigin | default (print (ternary "https://" "http://" .Values.ingress.sslEnabled) .Values.ingress.hosts.proxy) | quote }}
 
     c.BaseBeakerApp.identity_provider_class = "beakerhub.auth.node.BeakerhubNodeIdentityProvider"
     c.BaseBeakerApp.authorizer_class = "beakerhub.auth.node.BeakerhubNodeAuthorizer"
-    c.BaseBeakerApp.allow_origin_pat = r".*{{ .Values.ingress.hosts.proxy }}"
+    c.BaseBeakerApp.allow_origin_pat = rf"^{re.escape(hub_origin)}$"
+    c.BaseBeakerApp.allow_credentials = True
     c.BaseBeakerApp.tornado_settings = {
         "headers": {
-            "Content-Security-Policy": "frame-ancestors 'self' {{ .Values.ingress.hosts.proxy }} *.{{ .Values.ingress.hosts.proxy }}",
+            "Content-Security-Policy": f"frame-ancestors 'self' {hub_origin}",
         }
     }
     c.KernelProvisionerFactory.default_provisioner_name = "beakerhub-local-provisioner"
