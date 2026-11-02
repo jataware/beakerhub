@@ -68,7 +68,7 @@ const iframeUrl = computed<string>(() => {
 
 const notebookIsUp = async () => {
   try {
-    const isResponding = await fetch(iframeUrl.value);
+    const isResponding = await fetch(iframeUrl.value, {skipBase: true});
     if (!isResponding.ok) {
       connectionFailureCount.value++;
     }

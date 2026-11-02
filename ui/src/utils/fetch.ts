@@ -9,7 +9,7 @@ interface RequestInitWithBase extends RequestInit {
 
 class FetchClient {
   private defaultHeaders: DefaultHeaders;
-  private baseUrl: string = '/';
+  private _baseUrl: string = '/';
 
   constructor(defaultHeaders: DefaultHeaders = {}) {
     this.defaultHeaders = defaultHeaders;
@@ -45,8 +45,12 @@ class FetchClient {
 
   }
 
+  get baseUrl(): string {
+    return this._baseUrl;
+  }
+
   setBaseUrl(baseUrl: string) {
-    this.baseUrl = baseUrl;
+    this._baseUrl = baseUrl;
   }
 
   private headersForUrl(url) {

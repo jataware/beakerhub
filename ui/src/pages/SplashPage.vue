@@ -211,7 +211,6 @@
 </template>
 
 <script setup lang="ts">
-const baseUrl = import.meta.env.BASE_URL;
 import { ref, onMounted } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
@@ -220,8 +219,11 @@ import { Teleport } from 'vue';
 import HeroSVGBackground from '@/components/splash/HeroSVGBackground.vue';
 import DomainsCarousel from '@/components/DomainsCarousel.vue';
 import BeakerHubLogo from '@/components/BeakerHubLogo.vue';
+import { client } from '@/utils/fetch';
 
 
+
+const baseUrl = client.baseUrl || import.meta.env.BASE_URL;
 const isDarkMode = ref(false);
 const demoVideo = ref<HTMLVideoElement | null>(null);
 const videoPlaying = ref(false);
