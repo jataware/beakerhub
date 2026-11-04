@@ -463,6 +463,16 @@ class BeakerAwsECSSpawner(BeakerhubImageSpawner):
             volumes=volumes,
             mount_points=mount_points,
             sidecar_containers=[self._config_writer_container()],
+            health_check={
+                "command": [
+                    "CMD", "python3", "-c",
+                    "import os, urllib.request; "
+                    "urllib.request.urlopen('http://127.0.0.1:8888' + "
+                    "os.environ.get('BEAKER_SERVER_PREFIX', '').rstrip('/') + '/api/', "
+                    "timeout=5)",
+                ],
+                "startPeriod": 60,
+            },
         )
 
     def _process(self) -> AwsEcsProcess:
