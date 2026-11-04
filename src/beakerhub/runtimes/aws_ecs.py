@@ -290,6 +290,7 @@ class AwsEcsDefinition(BaseDefinition):
     volumes = traitlets.List(traitlets.Dict(), default_value=[], config=True)
     mount_points = traitlets.List(traitlets.Dict(), default_value=[], config=True)
     sidecar_containers = traitlets.List(traitlets.Dict(), default_value=[], config=True)
+    health_check = traitlets.Dict(default_value={}, config=True)
 
     @traitlets.default("cpu")
     def _default_cpu(self) -> str:
@@ -489,6 +490,8 @@ class AwsEcsDefinition(BaseDefinition):
             ]
         if self.mount_points:
             container["mountPoints"] = [dict(mount) for mount in self.mount_points]
+        if self.health_check:
+            container["healthCheck"] = dict(self.health_check)
         if self.sidecar_containers:
             container["dependsOn"] = [
                 {"containerName": sidecar["name"], "condition": "SUCCESS"}

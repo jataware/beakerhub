@@ -148,6 +148,12 @@ def test_definition_contains_session_overrides_and_runtime_launch_options():
     assert definition.cpu == "2 vcpu"
     assert definition.memory == "8GB"
     assert definition.ephemeral_storage == 40
+    health_check = definition.aws_task_definition["containerDefinitions"][0]["healthCheck"]
+    assert health_check == definition.health_check
+    assert health_check["command"][:3] == ["CMD", "python3", "-c"]
+    assert "BEAKER_SERVER_PREFIX" in health_check["command"][3]
+    assert "'/api/'" in health_check["command"][3]
+    assert health_check["startPeriod"] == 60
     assert definition.launch_options == {
         "enableExecuteCommand": False,
         "volumeConfigurations": [{"name": "session-volume", "managedEBSVolume": {}}],
