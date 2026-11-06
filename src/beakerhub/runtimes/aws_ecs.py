@@ -376,6 +376,14 @@ class AwsEcsDefinition(BaseDefinition):
             else None
         )
 
+    @property
+    def uses_awsvpc(self) -> bool:
+        """Use task ENIs for Fargate and explicitly networked EC2 workloads."""
+        return self.launch_type == "FARGATE" or (
+            self.launch_type == "EC2"
+            and bool(self.subnets or self.launch_options.get("networkConfiguration"))
+        )
+
     def validate_configuration(self) -> None:
         """Validate this definition's ECS launch configuration."""
         if not self.image:
@@ -529,6 +537,10 @@ class AwsEcsDefinition(BaseDefinition):
                     "requiresCompatibilities": ["FARGATE"],
                 }
             )
+        elif self.launch_type == "EC2":
+            definition_dict["requiresCompatibilities"] = ["EC2"]
+            if self.uses_awsvpc:
+                definition_dict["networkMode"] = "awsvpc"
         if self.definition_tags:
             definition_dict["tags"] = [
                 {"key": key, "value": value}
@@ -583,7 +595,7 @@ class AwsEcsProcess(BaseProcess):
         if definition.task_group:
             request["group"] = definition.task_group
         if (
-            definition.launch_type == "FARGATE"
+            definition.uses_awsvpc
             and "networkConfiguration" not in definition.launch_options
         ):
             request["networkConfiguration"] = self.runtime.awsvpc_network_configuration(

@@ -288,6 +288,23 @@ DNS volume, and their support images. Review the resolver instructions printed
 by the command for any remaining platform configuration. See
 [Helm and kind tooling](../helm/README.md#cleanup) for details.
 
+## ECS notebook placement
+
+The ECS spawner can use EC2 independently of the background task runner. Set
+`BeakerAwsECSSpawner.launch_type = "EC2"`, configure private `subnets` and
+`security_groups`, and set `default_task_ephemeral_storage = 0`. EC2 definitions
+with configured subnets (or an explicit `launch_options.networkConfiguration`)
+use `awsvpc`; EC2 definitions without either retain ECS's default bridge network.
+The notebook spawner needs `awsvpc` to discover the notebook's private task IP.
+
+Set `launch_options.capacityProviderStrategy` to the EC2 capacity provider to
+allow ECS-managed capacity provisioning. The runtime omits `launchType` when a
+capacity-provider strategy is supplied. The cluster, hosts, scaling policy, and
+host image-pull policy must be provisioned separately. Choose notebook CPU and
+memory allocations that leave sufficient host overhead, and increase the
+spawner's `start_timeout` for cold host provisioning. Its task-IP wait honors
+that timeout, with a minimum of the existing 120-second wait.
+
 ## Testing
 
 ### Top-level commands

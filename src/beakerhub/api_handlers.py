@@ -11,7 +11,7 @@ from beakerhub.types import HandlerTuple
 from tornado import web
 from jupyterhub.apihandlers.users import SelfAPIHandler, UserServerAPIHandler, SpawnProgressAPIHandler
 from jupyterhub.apihandlers import APIHandler
-from jupyterhub.scopes import needs_scope
+from jupyterhub.scopes import has_scope, needs_scope
 from jupyterhub.user import User
 from jupyterhub.utils import isoformat, url_escape_path, url_path_join
 from sqlalchemy.orm import joinedload
@@ -165,6 +165,23 @@ class BeakerhubSpawnProgressAPIHandler(SpawnProgressAPIHandler):
 
         await super().send_event(event)
 
+
+class BeakerhubServerInfoHandler(SelfAPIHandler):
+    def get(self, server_id):
+        user = self.current_user
+        if not user or not self.get_token() or not isinstance(user, User):
+            raise web.HTTPError(403)
+
+        scope = f"access:servers!server={user.name}/{server_id}"
+        if not has_scope(scope, self.parsed_scopes, db=self.db):
+            raise web.HTTPError(404)
+
+        spawner = self.db.query(JupyterOrm.Spawner).filter_by(
+            user_id=user.orm_user.id, name=server_id
+        ).one_or_none()
+        if spawner is None:
+            raise web.HTTPError(404)
+        self.write(json.dumps(spawner.user_options or {}))
 
 # ============================================
 # Context Role Visibility Helpers
@@ -633,6 +650,7 @@ handlers = [
     (r"/api/users/([^/]+)/server", BeakerhubUserServerAPIHandler),
     (r"/api/users/([^/]+)/servers/([^/]*)", BeakerhubUserServerAPIHandler),
     (r"/api/users/([^/]+)/servers/([^/]*)/progress", BeakerhubSpawnProgressAPIHandler),
+    (r"/api/beakerhub/server/([^/]+)/info", BeakerhubServerInfoHandler),
     # Context API endpoints
     (r"/api/beakerhub/contexts", ContextListHandler),
     (r"/api/beakerhub/contexts/details", ContextDetailsHandler),

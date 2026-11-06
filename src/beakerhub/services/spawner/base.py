@@ -1,6 +1,7 @@
 from typing import Any, cast
 from urllib.parse import urlsplit
 from uuid import uuid4
+import json
 
 from jupyterhub.spawner import Spawner
 from traitlets import Dict, Unicode, default, validate

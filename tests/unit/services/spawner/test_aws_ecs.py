@@ -76,6 +76,7 @@ def configured_spawner(**overrides):
         "get_env": lambda: {"BEAKERHUB_USER": "ada", "NUMBER": 2},
         "_notebook_config": lambda: "",
         "task_arn": None,
+        "start_timeout": 900,
         "debug": False,
         "log": Mock(),
     }
@@ -155,13 +156,13 @@ def test_definition_contains_session_overrides_and_runtime_launch_options():
     assert "'/api/'" in health_check["command"][3]
     assert health_check["startPeriod"] == 60
     assert definition.launch_options == {
-        "enableExecuteCommand": False,
+        "enableExecuteCommand": True,
         "volumeConfigurations": [{"name": "session-volume", "managedEBSVolume": {}}],
     }
 
 
-def test_definition_enables_ecs_exec_when_spawner_debug_is_enabled():
-    spawner = configured_spawner(debug=True)
+def test_definition_enables_ecs_exec_without_spawner_debug():
+    spawner = configured_spawner(debug=False)
 
     definition = BeakerAwsECSSpawner._definition(spawner)
 
@@ -324,6 +325,7 @@ async def test_start_uses_the_runtime_process_and_persists_its_arn():
     await BeakerAwsECSSpawner.start(spawner)
 
     assert spawner.task_arn == TASK_ARN
+    assert spawner._wait_for_task_ip.await_args.kwargs["timeout"] == 900
     request = shared_runtime.ecs_client.run_task.call_args.kwargs
     assert request["taskDefinition"] == "beaker-notebook:3"
     assert request["cluster"] == "notebooks"

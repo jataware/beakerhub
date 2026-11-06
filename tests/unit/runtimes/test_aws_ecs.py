@@ -126,6 +126,62 @@ def test_fixed_definition_launch_uses_runtime_networking_and_process_metadata():
     }
 
 
+def test_ec2_definition_and_launch_use_task_enis_and_capacity_provider():
+    strategy = [{"capacityProvider": "notebooks", "weight": 1}]
+    runtime = ecs_runtime(
+        launch_type="EC2",
+        default_task_cpu="4096",
+        default_task_memory="15360",
+        default_task_ephemeral_storage=0,
+        launch_options={"capacityProviderStrategy": strategy},
+    )
+    definition = AwsEcsDefinition(image="notebook:latest", runtime=runtime)
+    definition.validate_configuration()
+
+    registered = definition.aws_task_definition
+    assert registered["requiresCompatibilities"] == ["EC2"]
+    assert registered["networkMode"] == "awsvpc"
+    assert registered["cpu"] == "4096"
+    assert registered["memory"] == "15360"
+    assert "ephemeralStorage" not in registered
+
+    process = AwsEcsProcess(definition, runtime=runtime)
+    request = process._run_task_request("notebook:1")
+    assert request["capacityProviderStrategy"] == strategy
+    assert "launchType" not in request
+    assert request["networkConfiguration"]["awsvpcConfiguration"] == {
+        "subnets": ["subnet-runtime"],
+        "securityGroups": ["sg-runtime"],
+        "assignPublicIp": "DISABLED",
+    }
+
+
+def test_ec2_without_network_configuration_preserves_bridge_networking():
+    runtime = ecs_runtime(
+        launch_type="EC2", subnets=[], default_task_ephemeral_storage=0
+    )
+    definition = AwsEcsDefinition(image="notebook:latest", runtime=runtime)
+    definition.validate_configuration()
+    assert "networkMode" not in definition.aws_task_definition
+    request = AwsEcsProcess(definition, runtime=runtime)._run_task_request("notebook:1")
+    assert request["launchType"] == "EC2"
+    assert "networkConfiguration" not in request
+
+
+def test_ec2_explicit_network_configuration_is_preserved():
+    network = {"awsvpcConfiguration": {"subnets": ["subnet-override"]}}
+    runtime = ecs_runtime(
+        launch_type="EC2",
+        subnets=[],
+        default_task_ephemeral_storage=0,
+        launch_options={"networkConfiguration": network},
+    )
+    definition = AwsEcsDefinition(image="notebook:latest", runtime=runtime)
+    assert definition.aws_task_definition["networkMode"] == "awsvpc"
+    request = AwsEcsProcess(definition, runtime=runtime)._run_task_request("notebook:1")
+    assert request["networkConfiguration"] == network
+
+
 def test_dynamic_definition_includes_volumes_and_container_mount_points():
     definition = AwsEcsDefinition(
         image="example:latest",

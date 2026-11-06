@@ -345,14 +345,17 @@ class BeakerAwsECSSpawner(BeakerhubImageSpawner):
     def get_env(self) -> dict[str, str]:
         """Add the hub URLs needed by an ECS-hosted notebook server."""
         env = super().get_env()
-        hub_host = os.environ.get("HOSTNAME", "hub")
+        from jupyterhub.utils import url_path_join
+        from beakerhub.app import BeakerHub
+        app = BeakerHub.instance()
+        hub_host = app.hub_connect_url
         env.update(
             {
-                "JUPYTERHUB_API_URL": f"http://{hub_host}:8888/api",
+                "JUPYTERHUB_API_URL": url_path_join(hub_host, "/api"),
                 "JUPYTERHUB_ACTIVITY_URL": (
-                    f"http://{hub_host}:8888/api/users/matt@jataware.com/activity"
+                    url_path_join(hub_host, "/api/users/matt@jataware.com/activity")
                 ),
-                "JUPYTERHUB_SERVICE_URL": f"http://{hub_host}:8888/",
+                "JUPYTERHUB_SERVICE_URL": hub_host,
             }
         )
         return env
@@ -429,9 +432,8 @@ class BeakerAwsECSSpawner(BeakerhubImageSpawner):
             }
         )
 
-        # This flag allows an AWS user/accout with a proper role to "log into" running tasks.
-        # As such, it is only enabled when running in debug mode.
-        launch_options["enableExecuteCommand"] = self.debug
+        # Allow authorized AWS users to connect to the running task with ECS Exec.
+        launch_options["enableExecuteCommand"] = True
 
         return AwsEcsDefinition(
             runtime=self.runtime,
@@ -532,7 +534,9 @@ class BeakerAwsECSSpawner(BeakerhubImageSpawner):
             process_type="service",
         )
         self.task_arn = process.external_id
-        local_ip = await self._wait_for_task_ip(process=process)
+        local_ip = await self._wait_for_task_ip(
+            process=process, timeout=max(120.0, self.start_timeout)
+        )
 
         port = 8888
         self.log.warning("ECS notebook task is available at http://%s:%s", local_ip, port)
