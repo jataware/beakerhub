@@ -75,14 +75,8 @@ class BeakerNodeApp(BaseBeakerApp):
         server_id = quote(self.server_id, safe="")
         server_options = self._hub_request(f"beakerhub/server/{server_id}/info")
         self.log.warning(server_options)
-        self.server_options = server_options
         if server_options:
-            self.server_options = {
-                "context": {
-                    "default_context": "beaker-crdc",
-                    "default_context_payload": self.server_options.get("contextOptions")
-                }
-            }
+            self.server_options = server_options
 
 
 if __name__ == "__main__":

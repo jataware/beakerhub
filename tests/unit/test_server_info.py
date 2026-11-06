@@ -23,7 +23,7 @@ def make_handler():
 
 def test_server_info_returns_stored_options():
     handler = make_handler()
-    options = {"contextOptions": {"nested": [1, 2]}}
+    options = {"context": {"nested": [1, 2]}}
     handler.db.query.return_value.filter_by.return_value.one_or_none.return_value.user_options = options
     with patch("beakerhub.api_handlers.has_scope", return_value=True) as check_scope:
         BeakerhubServerInfoHandler.get(handler, "session-1")
@@ -69,7 +69,7 @@ def test_server_info_missing_server():
 def test_node_request_returns_json_and_raises_http_errors():
     app = BeakerNodeApp(hub_api_url="http://hub/api", hub_api_token="token")
     response = MagicMock()
-    response.json.return_value = {"contextOptions": {"key": "value"}}
+    response.json.return_value = {"context": {"key": "value"}}
     with patch("beakerhub.node_app.requests.get", return_value=response) as get:
         assert app._hub_request("beakerhub/server/session/info") == response.json.return_value
     get.assert_called_once_with(
@@ -84,7 +84,7 @@ def test_node_request_returns_json_and_raises_http_errors():
 
 def test_node_initialization_stores_options():
     app = BeakerNodeApp(server_id="session id")
-    options = {"contextOptions": {"key": "value"}}
+    options = {"context": {"key": "value"}}
     with patch("beakerhub.node_app.BaseBeakerApp.initialize"), patch.object(
         app, "_hub_request", return_value=options
     ) as request:
