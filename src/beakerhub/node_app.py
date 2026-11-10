@@ -12,8 +12,15 @@ from beaker_notebook.services.kernel import BeakerKernelManager, BeakerKernelMap
 class BeakerhubNodeKernelManager(BeakerKernelManager):
 
     def write_connection_file(self, **kwargs):
-        app = self.app
-        kwargs = {**app.server_options, **kwargs}
+        app: BeakerNodeApp = self.app
+        context_info = app.server_options.get("contextOptions", None)
+        if context_info:
+            context_config = kwargs.setdefault("context", {})
+            context_name = app.server_options.get("contextSlug", None)
+            if isinstance(context_name, str):
+                context_name = context_name.split(":", 1)[-1]
+            context_config["default_context"] = context_name
+            context_config["default_context_payload"] = context_info
         return super().write_connection_file(**kwargs)
 
 class BeakerhubNodeMappingKernelManager(BeakerKernelMappingManager):

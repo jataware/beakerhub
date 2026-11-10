@@ -23,7 +23,7 @@ _CONFIG_VOLUME_NAME = "config"
 _CONFIG_WRITER_NAME = "config-writer"
 _CONFIG_WRITER_IMAGE = "busybox:latest"
 _CONFIG_WRITER_MOUNT_PATH = "/opt/beaker/config"
-_NOTEBOOK_CONFIG_PATH = "/root/.config"
+_NOTEBOOK_CONFIG_PATH = "/opt/config"
 
 
 class BeakerAwsECSSpawner(BeakerhubImageSpawner):
@@ -438,6 +438,14 @@ class BeakerAwsECSSpawner(BeakerhubImageSpawner):
         return AwsEcsDefinition(
             runtime=self.runtime,
             image=self.image,
+            entrypoint=[
+                "/bin/sh",
+                "-ec",
+                f"cp {_NOTEBOOK_CONFIG_PATH}/beaker_config.py /root/beaker_config.py; "
+                'exec entry-point.sh "$@"',
+                "beaker-config-entrypoint",
+            ],
+            command=["-m", "beakerhub.node_app"],
             task_definition_arn=self.task_definition or None,
             container_name=self.container_name,
             tags=self._task_tags(),
