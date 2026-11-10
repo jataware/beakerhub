@@ -55,6 +55,10 @@ spec:
             secretKeyRef:
               name: proxy-secrets
               key: CONFIGPROXY_AUTH_TOKEN
+        {{- range $name, $value := .Values.hub.extraEnv }}
+        - name: {{ $name | quote }}
+          value: {{ $value | quote }}
+        {{- end }}
         envFrom:
         - secretRef:
               name: server-secrets

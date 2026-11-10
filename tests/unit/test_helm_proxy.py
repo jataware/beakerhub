@@ -40,6 +40,13 @@ def test_subpath_routing():
     assert '"Content-Security-Policy": f"frame-ancestors \'self\' {hub_origin}"' in rendered
 
 
+def test_hub_extra_env():
+    rendered = render('hub.extraEnv.EXAMPLE=hello', 'hub.extraEnv.NUMBER=123')
+    assert '- name: "EXAMPLE"\n          value: "hello"' in rendered
+    assert '- name: "NUMBER"\n          value: "123"' in rendered
+    assert 'key: CONFIGPROXY_AUTH_TOKEN' in rendered
+
+
 def test_custom_health_path_is_not_prefixed():
     rendered = render("hub.baseUrl=/beaker/", "hub.healthcheck.readiness.path=/custom")
     assert "path: /custom" in rendered

@@ -149,6 +149,9 @@ hub:
     copyrightHolder: Jataware Corp
     copyrightUrl: https://jataware.com
 
+  # Additional environment variables for the hub container
+  extraEnv: {}
+
   # Additional envFrom entries (e.g. for ExternalSecret-managed secrets)
   # Example:
   #   extraEnvFrom:

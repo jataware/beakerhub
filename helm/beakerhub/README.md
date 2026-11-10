@@ -102,6 +102,7 @@ required for a generic deployment.
 | `hub.serviceAccount.annotations` | Annotations applied to the hub service account | `{}` |
 | `hub.footer` | Runtime footer branding and links | See `values.yaml` |
 | `hub.resources` | Hub requests and limits | See `values.yaml` |
+| `hub.extraEnv` | Mapping of additional hub environment variable names to values | `{}` |
 | `hub.extraEnvFrom` | Additional `envFrom` entries | `[]` |
 | `hub.extraVolumes` | Additional pod volumes | `[]` |
 | `hub.extraVolumeMounts` | Additional server mounts | `[]` |
