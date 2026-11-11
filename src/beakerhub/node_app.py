@@ -35,15 +35,19 @@ class BeakerNodeApp(BaseBeakerApp):
     }
 
     hub_url = traitlets.Unicode(
+        allow_none=True,
         config=True
     )
     hub_api_url = traitlets.Unicode(
+        allow_none=True,
         config=True
     )
     hub_api_token = traitlets.Unicode(
+        allow_none=True,
         config=True
     )
     server_id = traitlets.Unicode(
+        allow_none=True,
         config=True
     )
 

@@ -259,6 +259,13 @@ export const createRouter = (config) => {
     history: createWebHistory(config.pathPrefix || import.meta.env.BASE_URL),
     routes: routes,
   });
+  router.beforeEach((to) => {
+    // Extension routes are served by the Hub, not by the Vue application.
+    if (to.name === "not-found" && to.path.startsWith("/extensions/")) {
+      window.location.assign(router.resolve(to.fullPath).href);
+      return false;
+    }
+  });
   router.beforeEach(requiresAuth);
   return router;
 }

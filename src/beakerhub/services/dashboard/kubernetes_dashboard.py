@@ -33,7 +33,8 @@ class KubernetesDashboardService(BaseDashboardService):
         from kubernetes import config as k8s_config
 
         try:
-            batch_api, core_api = self._runtime().get_clients()
+            runtime = self._runtime()
+            batch_api, core_api = runtime.batch_api, runtime.core_api
         except k8s_config.ConfigException:
             return {"available": False, "error": "No K8s configuration found"}
 
@@ -454,7 +455,7 @@ class KubernetesDashboardService(BaseDashboardService):
         from kubernetes import config as k8s_config
 
         try:
-            _, core_api = self._runtime().get_clients()
+            core_api = self._runtime().core_api
         except k8s_config.ConfigException:
             raise DashboardServiceError(
                 503,
